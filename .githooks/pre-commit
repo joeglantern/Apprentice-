@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Rejects staged text files that contain em dashes, en dashes, emoji, or AI attribution.
+# Enable with: git config core.hooksPath .githooks
+status=0
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    .githooks/*) continue ;;
+    *.png|*.jpg|*.jpeg|*.gif|*.psd|*.ai|*.pdf|*.zip|*.gz|*.tar|*.safetensors|*.ckpt|*.ico|*.woff|*.woff2|*.ttf) continue ;;
+  esac
+  if git show ":$f" | grep -qP '\x{2014}|\x{2013}'; then
+    echo "pre-commit: $f contains an em dash or en dash" >&2; status=1
+  fi
+  if git show ":$f" | grep -qP '[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}]'; then
+    echo "pre-commit: $f contains emoji" >&2; status=1
+  fi
+  if git show ":$f" | grep -qiE 'co-authored-by:.*(claude|anthropic)|generated with claude|claude-session'; then
+    echo "pre-commit: $f contains an AI attribution line" >&2; status=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+exit $status

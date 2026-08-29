@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Rejects commit messages that break the repo rules:
+#  - no mention of AI tools or AI attribution trailers
+#  - no em dashes or en dashes
+#  - no emoji
+# Enable with: git config core.hooksPath .githooks
+msg_file="$1"
+body="$(grep -v '^#' "$msg_file")"
+
+if printf '%s' "$body" | grep -qiE 'claude|anthropic|copilot|chatgpt|openai|co-authored-by:.*(claude|bot|ai)|generated with|claude-session'; then
+  echo "commit rejected: message mentions an AI tool or carries an AI attribution trailer" >&2
+  exit 1
+fi
+if printf '%s' "$body" | grep -qP '\x{2014}|\x{2013}'; then
+  echo "commit rejected: message contains an em dash or en dash, use a plain hyphen" >&2
+  exit 1
+fi
+if printf '%s' "$body" | grep -qP '[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}]'; then
+  echo "commit rejected: message contains emoji" >&2
+  exit 1
+fi
+exit 0
