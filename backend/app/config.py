@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     director_model: str = "claude-opus-5"
     director_effort: str = "high"
 
+    # Free path: a small open-weight instruct model served by Ollama (or anything
+    # exposing the same /api/chat + structured-output shape) on the Legion. Tried
+    # after Claude, before the heuristic plan. Leave empty to skip straight to the
+    # heuristic planner.
+    local_director_url: str = ""
+    local_director_model: str = "qwen2.5:7b-instruct"
+
     # Render endpoints: ComfyUI on the Legion (through the tunnel) and a burst GPU box.
     legion_inference_url: str = ""
     burst_inference_url: str = ""

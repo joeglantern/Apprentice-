@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.director import DesignPlan, PlanElement
+from app.director import DEFAULT_PALETTE, DesignPlan, PlanElement
 
 
 def _profile_value(profile: dict[str, Any] | None, *keys: str, default: Any) -> Any:
@@ -37,7 +37,7 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     headline_ratio = float(
         _profile_value(profile, "type_size_ratio", "headline_median", default=0.05)
     )
-    palette = plan.palette_intent or ["#1A1A1A", "#F2A623", "#FFFFFF"]
+    palette = plan.palette_intent or list(DEFAULT_PALETTE)
     fg = palette[0]
     bg = palette[1] if len(palette) > 1 else "#FFFFFF"
     accent = palette[2] if len(palette) > 2 else fg

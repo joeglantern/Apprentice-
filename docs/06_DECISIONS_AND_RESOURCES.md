@@ -94,3 +94,34 @@ own compose network and binds only the API to 127.0.0.1:8000, Flower to
 - Tailscale is not installed yet. It is still the plan for the VPS to Legion
   link (training pull, inference gateway) and would also replace the SSH
   tunnel for the collector.
+
+## D7 - Free director backend, no paid API required (2026-08-30)
+
+The operator has no budget for the Claude API. The director (D1) already had a
+heuristic fallback for when no model is configured; this adds a real, free
+middle tier so the pipeline still reasons about a brief without a paid call.
+
+Three backends now, tried in order, each a strict fallback of the one before:
+
+1. **Claude API** - unchanged from D1. Best quality, costs money, entirely
+   optional. Off unless `ANTHROPIC_API_KEY` is set.
+2. **Local LLM (new, the recommended path at zero budget)** - a small
+   open-weight instruct model (Qwen2.5-7B-Instruct or similar) served by
+   **Ollama** on the Legion, reached the same way as the render endpoint
+   (tunnel or Tailscale). Ollama's `/api/chat` with a JSON-schema `format`
+   gives structured output without needing a bigger framework. Configured
+   with `LOCAL_DIRECTOR_URL` / `LOCAL_DIRECTOR_MODEL`. Costs nothing beyond
+   the electricity the Legion already uses for training and inference.
+3. **Heuristic** - unchanged, always available, zero setup.
+
+Ollama and ComfyUI share the Legion's 8GB card sequentially, not
+concurrently: a generation job calls the director first (Ollama loads,
+answers, and - with Ollama's default idle timeout - unloads), then the
+render stage starts (ComfyUI loads SDXL). Neither needs to fit alongside
+the other in VRAM at the same instant.
+
+To turn this on: install Ollama on the Legion (`curl -fsSL
+https://ollama.com/install.sh | sh` on Linux, or the Mac/Windows installer),
+`ollama pull qwen2.5:7b-instruct`, then point `LOCAL_DIRECTOR_URL` at it
+from the VPS's `.env` over the same tunnel/Tailscale link used for
+`LEGION_INFERENCE_URL`.

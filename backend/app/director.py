@@ -1,9 +1,16 @@
-"""Creative director (docs/06 D1): reasons about a brief and writes a design plan.
+"""Creative director (docs/06 D1/D7): reasons about a brief and writes a design plan.
 
 Stage 1 of generation. The plan says what should exist and why; the layout stage
 (layout.py, later the layout VLM) decides where it goes; the style stage renders it.
-Without an API key the director degrades to a heuristic plan so the rest of the
-pipeline can still be exercised.
+
+Three backends, tried in order, each a strict fallback of the last:
+  1. Claude API        - best quality, costs money per call, off unless ANTHROPIC_API_KEY
+                          is set. Optional upgrade, not required to run this project.
+  2. Local LLM          - free after the Legion's GPU is there anyway: a small
+                          open-weight instruct model served by Ollama (or anything
+                          exposing the same /api/chat + structured-output shape).
+                          This is the default "thoughtful" path for a zero-budget setup.
+  3. Heuristic          - no model call at all, always available, always the last resort.
 """
 
 from __future__ import annotations
@@ -12,13 +19,15 @@ import json
 import logging
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+import httpx
+from pydantic import BaseModel, Field, ValidationError
 
 from app.config import Settings
 
 log = logging.getLogger(__name__)
 
 Role = Literal["headline", "subhead", "body", "cta", "logo", "image", "shape", "caption"]
+DEFAULT_PALETTE = ["#1A1A1A", "#F2A623", "#FFFFFF"]
 
 
 class PlanElement(BaseModel):
@@ -52,7 +61,9 @@ number of elements, and its margins. Do not invent a different aesthetic.
 Write copy that is specific to the brief, never placeholder text. Keep headlines short.
 Give every image element a concrete image_prompt the renderer can paint. Prefer fewer,
 stronger elements over many weak ones. The rationale should read like a designer
-explaining choices to a collaborator, in plain language."""
+explaining choices to a collaborator, in plain language.
+
+Respond with only the JSON object described by the schema, no other text."""
 
 
 def _profile_text(profile: dict[str, Any] | None) -> str:
@@ -64,19 +75,17 @@ def _profile_text(profile: dict[str, Any] | None) -> str:
 def heuristic_plan(
     brief: str, width: int, height: int, profile: dict[str, Any] | None
 ) -> DesignPlan:
-    """A serviceable plan with no model call, used when the director is unavailable."""
-    palette = [c["value"] for c in (profile or {}).get("dominant_colours", [])[:4]] or [
-        "#1A1A1A",
-        "#F2A623",
-        "#FFFFFF",
-    ]
+    """A serviceable plan with no model call, used when no director backend is available."""
+    palette = [c["value"] for c in (profile or {}).get("dominant_colours", [])[:4]] or list(
+        DEFAULT_PALETTE
+    )
     words = brief.strip().split()
     headline = " ".join(words[:6]).rstrip(".,;:") or "Untitled"
     return DesignPlan(
         rationale=(
-            "Director unavailable, so this plan follows the profile mechanically: one "
-            "headline carrying the brief, a supporting line, an image area and a colour "
-            "block in the designer's dominant palette."
+            "No director model was available, so this plan follows the profile "
+            "mechanically: one headline carrying the brief, a supporting line, an "
+            "image area and a colour block in the designer's dominant palette."
         ),
         canvas={"width": width, "height": height},
         mood=["direct", "clean", "confident"],
@@ -100,25 +109,62 @@ class DirectorRefused(RuntimeError):
     pass
 
 
-async def plan_design(
-    brief: str,
-    width: int,
-    height: int,
-    profile: dict[str, Any] | None,
-    settings: Settings,
-) -> DesignPlan:
-    if not settings.anthropic_api_key:
-        log.warning("ANTHROPIC_API_KEY not set; using the heuristic plan")
-        return heuristic_plan(brief, width, height, profile)
-
-    import anthropic
-
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    user_text = (
+def _user_text(brief: str, width: int, height: int, profile: dict[str, Any] | None) -> str:
+    return (
         f"Brief: {brief.strip()}\n\nCanvas: {width} x {height} px\n\n"
         f"Designer style profile:\n{_profile_text(profile)}\n\n"
         "Produce the design plan."
     )
+
+
+async def _call_local_director(settings: Settings, user_text: str, schema: dict[str, Any]) -> str:
+    """POST to a local Ollama-compatible /api/chat with structured-output format.
+    Split out as its own function so tests can monkeypatch it without a real server."""
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        r = await client.post(
+            f"{settings.local_director_url.rstrip('/')}/api/chat",
+            json={
+                "model": settings.local_director_model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text},
+                ],
+                "format": schema,
+                "stream": False,
+                "options": {"temperature": 0.7},
+            },
+        )
+        r.raise_for_status()
+        return str(r.json()["message"]["content"])
+
+
+async def _local_plan(
+    brief: str, width: int, height: int, profile: dict[str, Any] | None, settings: Settings
+) -> DesignPlan | None:
+    """Returns None (never raises) when the local model is unreachable or answers badly,
+    so the caller can fall back to the heuristic plan without the job failing."""
+    schema = DesignPlan.model_json_schema()
+    try:
+        content = await _call_local_director(
+            settings, _user_text(brief, width, height, profile), schema
+        )
+        plan = DesignPlan.model_validate_json(content)
+    except (httpx.HTTPError, ValidationError, KeyError, ValueError) as exc:
+        log.warning(
+            "local director unavailable or answered badly (%s); using the heuristic plan", exc
+        )
+        return None
+    plan.canvas = {"width": width, "height": height}
+    plan.source = "director"
+    return plan
+
+
+async def _anthropic_plan(
+    brief: str, width: int, height: int, profile: dict[str, Any] | None, settings: Settings
+) -> DesignPlan | None:
+    import anthropic
+
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     try:
         response = await client.messages.parse(
             model=settings.director_model,
@@ -126,19 +172,19 @@ async def plan_design(
             system=[
                 {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
             ],
-            messages=[{"role": "user", "content": user_text}],
+            messages=[{"role": "user", "content": _user_text(brief, width, height, profile)}],
             output_format=DesignPlan,
             output_config={"effort": settings.director_effort},
         )
     except anthropic.RateLimitError:
-        log.warning("director rate limited; using the heuristic plan")
-        return heuristic_plan(brief, width, height, profile)
+        log.warning("director rate limited; trying the next backend")
+        return None
+    except anthropic.APIConnectionError:
+        log.warning("director unreachable; trying the next backend")
+        return None
     except anthropic.APIStatusError as exc:
         log.error("director request failed: %s", exc)
         raise
-    except anthropic.APIConnectionError:
-        log.warning("director unreachable; using the heuristic plan")
-        return heuristic_plan(brief, width, height, profile)
 
     if response.stop_reason == "refusal":
         detail = (
@@ -147,7 +193,30 @@ async def plan_design(
         raise DirectorRefused(detail or "The director declined this brief.")
     plan = response.parsed_output
     if plan is None:
-        raise RuntimeError("director returned no parsable plan")
+        return None
     plan.canvas = {"width": width, "height": height}
     plan.source = "director"
     return plan
+
+
+async def plan_design(
+    brief: str,
+    width: int,
+    height: int,
+    profile: dict[str, Any] | None,
+    settings: Settings,
+) -> DesignPlan:
+    """Claude (if configured) -> local LLM (if configured) -> heuristic. Each step is a
+    strict fallback: any failure of an earlier step tries the next, never raises past
+    DirectorRefused (a real content decision, not an availability problem)."""
+    if settings.anthropic_api_key:
+        plan = await _anthropic_plan(brief, width, height, profile, settings)
+        if plan is not None:
+            return plan
+    if settings.local_director_url:
+        plan = await _local_plan(brief, width, height, profile, settings)
+        if plan is not None:
+            return plan
+    else:
+        log.info("no director backend configured; using the heuristic plan")
+    return heuristic_plan(brief, width, height, profile)
