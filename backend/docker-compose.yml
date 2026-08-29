@@ -1,0 +1,47 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    depends_on: [postgres, redis]
+    ports: ["127.0.0.1:8000:8000"]
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    depends_on: [postgres, redis]
+    restart: unless-stopped
+
+  flower:
+    image: mher/flower:2.0
+    command: celery --broker=redis://redis:6379/0 flower --url_prefix=flower
+    ports: ["127.0.0.1:5555:5555"]
+    depends_on: [redis]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ghostagent
+      POSTGRES_USER: ghostagent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ghostagent}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certs:/etc/letsencrypt:ro
+    ports: ["80:80", "443:443"]
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  certs:
