@@ -69,3 +69,28 @@ before it goes on the designer's M4. Constraints that follow:
 Operator confirmed on 2026-08-29: Legion RTX 5060 mobile 8GB; Contabo VPS
 CPU-only. Milestone plan M1-M5 (kickoff Phase 0 step 4) accepted, with
 D1/D2 folded into M3-M5.
+
+## D6 - VPS deployment (2026-08-30)
+
+The Contabo box (Ubuntu 24.04, 12 cores, 47 GB RAM) is shared with other
+projects. Host nginx owns ports 80 and 443 and the host runs its own
+Postgres and Redis, so the Ghost Agent stack keeps everything inside its
+own compose network and binds only the API to 127.0.0.1:8000, Flower to
+127.0.0.1:5555 and MinIO to 127.0.0.1:9000 and 9001.
+
+- Checkout: `~/ghost-agent` on the VPS, compose project name `ghostagent`,
+  started with `docker compose -p ghostagent -f docker-compose.yml -f
+  docker-compose.vps.yml up -d --build`.
+- Object storage is a local MinIO (`docker-compose.vps.yml`) until Contabo
+  S3 credentials exist. Switching later is an env change plus a one time
+  copy of the bucket.
+- Secrets live only in `~/ghost-agent/backend/.env` on the server
+  (Postgres password, MinIO root, agent tokens for `mac-2015` and `mac-m4`).
+- Until a hostname points at the box, the collector reaches the API through
+  an SSH tunnel: `ssh -N -L 8000:127.0.0.1:8000 liban@<vps>` on the Mac and
+  pair with `http://localhost:8000`. Once a hostname exists, the host nginx
+  gets a server block proxying to 127.0.0.1:8000 with the WebSocket upgrade
+  headers from `backend/nginx.conf`, and certbot issues the certificate.
+- Tailscale is not installed yet. It is still the plan for the VPS to Legion
+  link (training pull, inference gateway) and would also replace the SSH
+  tunnel for the collector.
