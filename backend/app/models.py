@@ -41,6 +41,25 @@ class Asset(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class Job(SQLModel, table=True):
+    """One generation request from the app; result holds the layers the canvas renders."""
+
+    __tablename__ = "jobs"
+
+    job_id: str = Field(primary_key=True, max_length=36)
+    prompt: str
+    aesthetic_version: str = Field(max_length=64)
+    width: int
+    height: int
+    requested_by: str = Field(max_length=100)
+    status: str = Field(default="queued", index=True, max_length=20)
+    plan: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    error: str | None = None
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class Checkpoint(SQLModel, table=True):
     """One trained artefact; its files live under checkpoints/<name>/ in object storage."""
 

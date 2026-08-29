@@ -32,6 +32,16 @@ class Settings(BaseSettings):
 
     cors_origins: str = "*"
 
+    # Creative director (docs/06 D1). Without a key the pipeline uses a heuristic plan.
+    anthropic_api_key: str = ""
+    director_model: str = "claude-opus-5"
+    director_effort: str = "high"
+
+    # Render endpoints: ComfyUI on the Legion (through the tunnel) and a burst GPU box.
+    legion_inference_url: str = ""
+    burst_inference_url: str = ""
+    inference_timeout_s: float = 240.0
+
     def agent_token_map(self) -> dict[str, str]:
         """token -> agent_id"""
         out: dict[str, str] = {}

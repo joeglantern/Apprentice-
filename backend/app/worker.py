@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlmodel import Session, select
 
 from app.config import get_settings
-from app.models import Asset, utcnow
+from app.models import Asset, Checkpoint, Job, utcnow
 
 settings = get_settings()
 
@@ -77,6 +77,94 @@ def tag_asset(self: Any, asset_id: str) -> str:
         session.add(asset)
         session.commit()
     return "tagged"
+
+
+@celery_app.task(name="app.worker.generate_design", bind=True, max_retries=0)
+def generate_design(self: Any, job_id: str) -> str:
+    from app.generation import SyncStorage, run_generation
+    from app.inference import pick_renderer
+    from app.profile import build_profile
+    from app.realtime import worker_emitter
+    from app.storage import get_storage
+
+    emitter = worker_emitter()
+
+    def progress(stage: str, data: dict[str, Any]) -> None:
+        with sync_session() as s:
+            row = s.get(Job, job_id)
+            if row is not None and row.status not in ("done", "error"):
+                row.status = stage
+                row.updated_at = utcnow()
+                s.add(row)
+                s.commit()
+        try:
+            emitter.emit("progress", {"job_id": job_id, "stage": stage, **data}, room=job_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return "missing"
+        lora_file = None
+        if job.aesthetic_version != "baseline":
+            ckpt = session.get(Checkpoint, job.aesthetic_version)
+            if ckpt is not None:
+                lora_file = next((f for f in ckpt.files if f.endswith(".safetensors")), None)
+        assets = session.exec(select(Asset).where(Asset.status == "tagged").limit(500)).all()
+        payloads = [
+            a.payload for a in assets if (a.payload.get("consent") or {}).get("project_opted_in")
+        ]
+        profile = build_profile(payloads) if payloads else None
+        prompt, width, height, aesthetic = job.prompt, job.width, job.height, job.aesthetic_version
+
+    try:
+        plan, result = run_generation(
+            job_id=job_id,
+            prompt=prompt,
+            width=width,
+            height=height,
+            aesthetic_version=aesthetic,
+            lora_file=lora_file,
+            profile=profile,
+            settings=settings,
+            renderer=pick_renderer(settings),
+            storage=SyncStorage(get_storage()),
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        with sync_session() as session:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.status = "error"
+                job.error = str(exc)[:500]
+                job.updated_at = utcnow()
+                session.add(job)
+                session.commit()
+        try:
+            emitter.emit(
+                "progress",
+                {"job_id": job_id, "stage": "error", "message": str(exc)[:200]},
+                room=job_id,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return "error"
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is not None:
+            job.plan = plan.model_dump()
+            job.result = result
+            job.status = "done"
+            job.updated_at = utcnow()
+            session.add(job)
+            session.commit()
+    try:
+        emitter.emit("progress", {"job_id": job_id, "stage": "done"}, room=job_id)
+    except Exception:  # noqa: BLE001
+        pass
+    return "done"
 
 
 @celery_app.task(name="app.worker.retag_received")

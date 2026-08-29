@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import dispose_engine
-from app.routes import checkpoints, health, ingest
+from app.routes import checkpoints, generate, health, ingest
 from app.storage import get_storage
 
 
@@ -38,6 +38,7 @@ def create_app(*, mount_realtime: bool = True) -> FastAPI:
     app.include_router(health.router)
     app.include_router(ingest.router)
     app.include_router(checkpoints.router)
+    app.include_router(generate.router)
     if mount_realtime:
         # Imported lazily so tests without Redis can build the app.
         from app.realtime import socket_app
