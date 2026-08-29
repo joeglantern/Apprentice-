@@ -65,7 +65,6 @@ class GhostAgentApp(rumps.App):
         self.status_item.set_callback(None)
         self.pause_item = rumps.MenuItem("Pause capture", callback=self.toggle_pause)
         self.projects_menu = rumps.MenuItem("Opted-in projects")
-        self.menu.clear()
         self.menu = [
             self.status_item,
             None,
@@ -80,7 +79,10 @@ class GhostAgentApp(rumps.App):
         ]
 
     def _refresh_projects_menu(self) -> None:
-        self.projects_menu.clear()
+        # rumps only creates the native submenu once an item has been added,
+        # so clear() raises on a submenu that is still empty.
+        if len(self.projects_menu):
+            self.projects_menu.clear()
         projects = self.store.projects()
         if not projects:
             item = rumps.MenuItem("(none - nothing is being captured)")
