@@ -32,3 +32,4 @@ Thumbs.db
 
 # build artefacts pulled in by tooling
 collector-mac/rumps_src/
+collector-mac/rumps-*/
