@@ -106,6 +106,11 @@ def generate_design(self: Any, job_id: str) -> str:
         job = session.get(Job, job_id)
         if job is None:
             return "missing"
+        if job.status in ("done", "error"):
+            # Celery redelivery (task_acks_late) after a worker crash mid-job must not
+            # re-run a finished job: a second paid director call, a second render, and
+            # overwritten results the app may already be showing.
+            return job.status
         lora_file = None
         if job.aesthetic_version != "baseline":
             ckpt = session.get(Checkpoint, job.aesthetic_version)

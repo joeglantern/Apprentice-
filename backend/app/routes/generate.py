@@ -93,10 +93,10 @@ async def start_generation(
 async def read_job(
     job_id: JobId,
     session: AsyncSession = Depends(get_session),
-    _agent: str = Depends(verify_agent_token),
+    agent_id: str = Depends(verify_agent_token),
 ) -> Job:
     job = await session.get(Job, job_id.lower())
-    if job is None:
+    if job is None or job.requested_by != agent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     return job
 
@@ -106,11 +106,11 @@ async def read_raster(
     job_id: JobId,
     layer_id: str,
     session: AsyncSession = Depends(get_session),
-    _agent: str = Depends(verify_agent_token),
+    agent_id: str = Depends(verify_agent_token),
     storage: Storage = Depends(get_storage),
 ) -> Response:
     job = await session.get(Job, job_id.lower())
-    if job is None or not job.result:
+    if job is None or job.requested_by != agent_id or not job.result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     key = next(
         (
@@ -122,7 +122,10 @@ async def read_raster(
     )
     if key is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No raster for this layer")
-    data = await storage.get(key)
+    try:
+        data = await storage.get(key)
+    except Exception as exc:  # noqa: BLE001 - backend-specific "not found" exceptions vary
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Raster no longer available") from exc
     return Response(content=data, media_type="image/png")
 
 

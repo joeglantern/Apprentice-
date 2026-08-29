@@ -117,6 +117,15 @@ class ComfyRenderer:
             return False
 
     def render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None:
+        """Never raises: any failure (unreachable, bad graph, timeout) degrades to None so
+        the caller falls back to a flat colour block instead of failing the whole job."""
+        try:
+            return self._render(prompt, width, height, lora)
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            log.error("comfy render failed on %s: %s", self.name, exc)
+            return None
+
+    def _render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None:
         client_id = uuid.uuid4().hex
         graph = sdxl_workflow(prompt, width, height, lora, seed=int(time.time()), steps=self.steps)
         with httpx.Client(base_url=self.base_url, timeout=30.0) as client:

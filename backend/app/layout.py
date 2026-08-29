@@ -29,7 +29,10 @@ def _dominant(profile: dict[str, Any] | None, key: str, default: str) -> str:
 
 def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[str, Any]:
     width, height = plan.canvas["width"], plan.canvas["height"]
-    margin = int(width * float(_profile_value(profile, "margin_ratio", default=0.06)))
+    # Clamped so an unusual profile (e.g. mostly centred single-block designs, whose
+    # min-edge margin skews high) can never push the landscape text column negative.
+    margin_ratio = min(max(float(_profile_value(profile, "margin_ratio", default=0.06)), 0.0), 0.15)
+    margin = int(width * margin_ratio)
     align = _dominant(profile, "text_alignment", "left")
     headline_ratio = float(
         _profile_value(profile, "type_size_ratio", "headline_median", default=0.05)
@@ -94,16 +97,25 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     # Text stack: headline, subhead, body, caption, cta, top to bottom.
     order = {"headline": 0, "subhead": 1, "body": 2, "caption": 3, "cta": 4, "logo": 5}
     texts = sorted((e for e in ordered if e.role in order), key=lambda e: order[e.role])
+    font_family = _dominant(profile, "fonts", "Helvetica Neue")
     y = text_top
     for element in texts:
         size = _text_size(element, width, headline_ratio)
-        lines = max(1, min(4, len(element.content) * size // max(1, int(text_width * 1.9)) + 1))
+        chars_per_line = max(1, int(text_width / max(1, size * 0.55)))
+        lines = max(1, min(4, -(-len(element.content) // chars_per_line)))
         h = int(size * 1.15 * lines)
-        x = text_left
         w = text_width
+        if element.role == "cta":
+            pad = int(size * 0.6)
+            w = min(w, size * 9)
+            h += pad
+        # Only a narrower box (the cta) actually moves with alignment; full-width text
+        # boxes carry `align` for the renderer's text-anchor and don't need to shift.
         if align == "center":
-            x = text_left
-        elif align == "right" and not images:
+            x = text_left + (text_width - w) // 2
+        elif align == "right":
+            x = text_left + text_width - w
+        else:
             x = text_left
         layer: dict[str, Any] = {
             "name": element.role,
@@ -112,7 +124,7 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
             "text": element.content,
             "align": align,
             "typography": {
-                "font_family": _dominant(profile, "fonts", "Helvetica Neue"),
+                "font_family": font_family,
                 "font_size": size,
                 "font_weight": 700 if element.role in ("headline", "cta") else 400,
                 "line_height": 1.15,
@@ -120,8 +132,6 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
             "color": {"hex": accent if element.role == "cta" else fg, "opacity": 1.0},
         }
         if element.role == "cta":
-            pad = int(size * 0.6)
-            layer["bbox"] = {"x": x, "y": y, "width": min(w, size * 9), "height": h + pad}
             layer["background"] = {"hex": accent, "opacity": 1.0}
             layer["color"] = {"hex": bg, "opacity": 1.0}
         add(layer)

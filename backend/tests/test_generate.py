@@ -12,7 +12,7 @@ from app.generation import SyncStorage, run_generation
 from app.inference import NullRenderer, sdxl_workflow
 from app.layout import heuristic_layout
 from app.profile import build_profile
-from tests.conftest import AUTH_A, FakeStorage, make_payload
+from tests.conftest import AUTH_A, AUTH_B, FakeStorage, make_payload
 
 PROFILE = build_profile([make_payload(), make_payload()])
 
@@ -62,6 +62,21 @@ def test_sdxl_workflow_wires_lora() -> None:
     assert graph["6"]["inputs"]["text"].startswith("ghoststyle, ")
     plain = sdxl_workflow("a poster", 1024, 576, None, seed=1, steps=20)
     assert "10" not in plain and plain["3"]["inputs"]["model"] == ["4", 0]
+
+
+def test_comfy_render_degrades_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ComfyUI/network failure must not raise out of render() - the caller falls back
+    to a flat colour block rather than failing the whole job."""
+    from app.inference import ComfyRenderer
+
+    def boom(self: ComfyRenderer, *a: Any, **kw: Any) -> None:
+        import httpx
+
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(ComfyRenderer, "_render", boom)
+    renderer = ComfyRenderer("http://legion:8188", "legion", timeout=1.0)
+    assert renderer.render("a poster", 512, 512, None) is None
 
 
 class FakeRenderer:
@@ -154,6 +169,13 @@ async def test_generate_routes(client: AsyncClient, monkeypatch: pytest.MonkeyPa
     r = await client.get(f"/generate/{job_id}/raster/L02", headers=AUTH_A)
     assert r.status_code == 404
     assert (await client.post("/generate", json={"prompt": "no auth here"})).status_code == 401
+
+    # A different agent (e.g. holding the collector's token, not the app's) may not
+    # read this job or its renders, even with a valid token of its own.
+    r = await client.get(f"/generate/{job_id}", headers=AUTH_B)
+    assert r.status_code == 404
+    r = await client.get(f"/generate/{job_id}/raster/L01", headers=AUTH_B)
+    assert r.status_code == 404
 
 
 def test_design_plan_schema_roundtrip() -> None:
