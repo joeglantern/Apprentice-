@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+_HEX_COLOUR = re.compile(r"#[0-9A-Fa-f]{6}")
+_UUID = re.compile(UUID_PATTERN)
+
+
+def is_uuid(value: str) -> bool:
+    return bool(_UUID.fullmatch(value))
+
+
+def to_naive_utc(value: datetime) -> datetime:
+    """Database columns are timestamp without time zone; store everything as naive UTC."""
+    if value.tzinfo is not None:
+        value = value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
 class ConsentBlock(BaseModel):
@@ -45,7 +61,7 @@ class LayerSpec(BaseModel):
 
 
 class AssetPayload(BaseModel):
-    asset_id: str = Field(min_length=36, max_length=36)
+    asset_id: str = Field(pattern=UUID_PATTERN)
     source_project: str = Field(min_length=1, max_length=200)
     captured_at: datetime
     file: FileSpec
@@ -53,13 +69,22 @@ class AssetPayload(BaseModel):
     palette: list[str] = Field(default_factory=list, max_length=32)
     consent: ConsentBlock | None = None
 
+    @field_validator("asset_id")
+    @classmethod
+    def _lower_uuid(cls, value: str) -> str:
+        return value.lower()
+
+    @field_validator("captured_at")
+    @classmethod
+    def _naive_utc(cls, value: datetime) -> datetime:
+        return to_naive_utc(value)
+
     @field_validator("palette")
     @classmethod
     def _hex_colours(cls, value: list[str]) -> list[str]:
         for item in value:
-            if len(item) != 7 or item[0] != "#":
+            if not _HEX_COLOUR.fullmatch(item):
                 raise ValueError(f"palette entry is not #RRGGBB: {item!r}")
-            int(item[1:], 16)
         return [v.upper() for v in value]
 
     @field_validator("source_project")

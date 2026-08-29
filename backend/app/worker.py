@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from celery import Celery
@@ -22,6 +23,12 @@ celery_app.conf.update(
     task_eager_propagates=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    beat_schedule={
+        "retag-received-assets": {
+            "task": "app.worker.retag_received",
+            "schedule": 300.0,
+        }
+    },
 )
 
 _sync_engine = None
@@ -70,3 +77,15 @@ def tag_asset(self: Any, asset_id: str) -> str:
         session.add(asset)
         session.commit()
     return "tagged"
+
+
+@celery_app.task(name="app.worker.retag_received")
+def retag_received() -> int:
+    """Sweep for assets whose tagging publish was lost (broker outage) and re-enqueue."""
+    cutoff = utcnow() - timedelta(minutes=2)
+    with sync_session() as session:
+        stmt = select(Asset.asset_id).where(Asset.status == "received", Asset.updated_at < cutoff)
+        ids = list(session.exec(stmt).all())
+    for asset_id in ids:
+        tag_asset.delay(asset_id)
+    return len(ids)

@@ -19,8 +19,8 @@ def verify_agent_token(
     """Returns the agent_id for a valid token, else 401."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing agent token")
-    presented = credentials.credentials
+    presented = credentials.credentials.encode("utf-8", errors="replace")
     for token, agent_id in settings.agent_token_map().items():
-        if secrets.compare_digest(presented, token):
+        if secrets.compare_digest(presented, token.encode("utf-8", errors="replace")):
             return agent_id
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid agent token")

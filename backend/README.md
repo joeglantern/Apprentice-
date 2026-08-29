@@ -43,4 +43,7 @@ no Docker needed.
    server block.
 3. `docker compose up -d --build` then `docker compose run --rm api alembic upgrade head`.
 
+The bucket named in `S3_BUCKET` is created on first start if the credentials allow it;
+otherwise create it in the Contabo panel first.
+
 Migrations are never run automatically on boot.

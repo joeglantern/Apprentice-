@@ -117,3 +117,76 @@ async def test_list_assets_scoped_to_agent(client: AsyncClient) -> None:
     assert [x["source_project"] for x in r.json()] == ["alpha"]
     r = await client.get("/ingest/assets", params={"project": "beta"}, headers=AUTH_B)
     assert len(r.json()) == 1
+
+
+async def test_aware_captured_at_is_stored_as_naive_utc(client: AsyncClient) -> None:
+    payload = make_payload(captured_at="2026-08-30T12:00:00+02:00")
+    r = await client.post("/ingest/asset", json=payload, headers=AUTH_A)
+    assert r.status_code == 202, r.text
+    r = await client.get(f"/ingest/asset/{payload['asset_id']}", headers=AUTH_A)
+    assert r.json()["captured_at"] == "2026-08-30T10:00:00"
+
+
+async def test_palette_rejects_lookalikes(client: AsyncClient) -> None:
+    for bad in ["#+1A1A1", "# 1A1A1", "#0x1A1A", "#1_A1A1", "1A1A1A"]:
+        r = await client.post("/ingest/asset", json=make_payload(palette=[bad]), headers=AUTH_A)
+        assert r.status_code == 422, bad
+
+
+async def test_asset_id_must_be_uuid(client: AsyncClient) -> None:
+    bad = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaa/../aaa"
+    r = await client.post("/ingest/asset", json=make_payload(asset_id=bad), headers=AUTH_A)
+    assert r.status_code == 422
+    r = await client.get(f"/ingest/asset/{bad}", headers=AUTH_A)
+    assert r.status_code in (404, 422)
+
+
+async def test_non_ascii_token_is_401_not_500(client: AsyncClient) -> None:
+    raw = {b"Authorization": "Bearer töken".encode("latin-1")}
+    r = await client.get("/ingest/assets", headers=raw)
+    assert r.status_code == 401
+
+
+async def test_repost_retags_and_updates_version(client: AsyncClient) -> None:
+    payload = make_payload()
+    await client.post("/ingest/asset", json=payload, headers=AUTH_A)
+    payload["palette"] = ["#FFFFFF"]
+    payload["consent"]["captured_by_agent_version"] = "0.4.0"
+    await client.post("/ingest/asset", json=payload, headers=AUTH_A)
+    r = await client.get(f"/ingest/asset/{payload['asset_id']}", headers=AUTH_A)
+    body = r.json()
+    assert body["status"] == "tagged"
+    assert body["tags"]["palette_size"] == 1
+
+
+async def test_upload_does_not_regress_tagging_state(
+    client: AsyncClient, storage: FakeStorage
+) -> None:
+    payload = make_payload()
+    await client.post("/ingest/asset", json=payload, headers=AUTH_A)
+    files = {"file": ("../../evil.psd", b"8BPS", "application/octet-stream")}
+    r = await client.put(f"/ingest/asset/{payload['asset_id']}/file", files=files, headers=AUTH_A)
+    assert r.status_code == 200, r.text
+    key = r.json()["file_key"]
+    assert key.endswith("/evil.psd") and ".." not in key
+    r = await client.get(f"/ingest/asset/{payload['asset_id']}", headers=AUTH_A)
+    assert r.json()["status"] == "tagged"
+    assert r.json()["file_key"] == key
+    # Re-upload under a new name replaces the object and removes the old one.
+    files = {"file": ("renamed.psd", b"8BPS", "application/octet-stream")}
+    r = await client.put(f"/ingest/asset/{payload['asset_id']}/file", files=files, headers=AUTH_A)
+    assert list(storage.objects) == [r.json()["file_key"]]
+
+
+async def test_declared_content_length_rejected_early(client: AsyncClient) -> None:
+    payload = make_payload()
+    await client.post("/ingest/asset", json=payload, headers=AUTH_A)
+    req = client.build_request(
+        "PUT",
+        f"/ingest/asset/{payload['asset_id']}/file",
+        files={"file": ("a.psd", b"x", "application/octet-stream")},
+        headers=AUTH_A,
+    )
+    req.headers["content-length"] = "999999999"
+    r = await client.send(req)
+    assert r.status_code == 413

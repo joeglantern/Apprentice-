@@ -33,11 +33,14 @@ class FakeStorage:
     def __init__(self) -> None:
         self.objects: dict[str, tuple[bytes, str]] = {}
 
-    async def put(self, key: str, data: bytes, content_type: str) -> None:
-        self.objects[key] = (data, content_type)
+    async def put(self, key: str, body: Any, content_type: str) -> None:
+        self.objects[key] = (body.read(), content_type)
 
     async def get(self, key: str) -> bytes:
         return self.objects[key][0]
+
+    async def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
 
 
 @pytest.fixture
@@ -84,12 +87,9 @@ async def client(session_maker, storage, monkeypatch) -> AsyncIterator[AsyncClie
                 s.add(asset)
                 await s.commit()
 
-    import app.queue as queue_mod
-
-    monkeypatch.setattr(queue_mod, "enqueue_vision_tagging", _tag)
     import app.routes.ingest as ingest_mod
 
-    monkeypatch.setattr(ingest_mod, "enqueue_vision_tagging", _tag)
+    monkeypatch.setattr(ingest_mod, "_queue_tagging", _tag)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

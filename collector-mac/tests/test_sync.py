@@ -151,3 +151,28 @@ def test_post_strips_private_fields_and_sends_bearer(agent_home: Path, tmp_path:
     assert b"_local_path" not in post.content
     assert put.method == "PUT"
     assert put.url.path.endswith(f"/ingest/asset/{p['asset_id']}/file")
+
+
+def test_permanent_4xx_is_not_queued(agent_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def rejected(self: SyncClient, payload: dict[str, Any]) -> None:
+        resp = httpx.Response(403, json={"detail": "Project is not opted in"})
+        raise httpx.HTTPStatusError("403", request=httpx.Request("POST", "http://x"), response=resp)
+
+    monkeypatch.setattr(SyncClient, "_post", rejected)
+    client = make_client(agent_home)
+    p = build_payload(project_name="x", file_path="/tmp/a.png", parsed=PARSED, opted_in=True)
+    assert client.send(p) is False
+    assert client.queued() == []
+    assert any("rejected by server (403)" in line for line in tail())
+
+
+def test_429_is_retried(agent_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def limited(self: SyncClient, payload: dict[str, Any]) -> None:
+        resp = httpx.Response(429)
+        raise httpx.HTTPStatusError("429", request=httpx.Request("POST", "http://x"), response=resp)
+
+    monkeypatch.setattr(SyncClient, "_post", limited)
+    client = make_client(agent_home)
+    p = build_payload(project_name="x", file_path="/tmp/a.png", parsed=PARSED, opted_in=True)
+    assert client.send(p) is False
+    assert len(client.queued()) == 1

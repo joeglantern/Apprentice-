@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -11,10 +12,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.db import dispose_engine
 from app.routes import health, ingest
+from app.storage import get_storage
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    storage = get_storage()
+    ensure = getattr(storage, "ensure_bucket", None)
+    if ensure is not None:
+        try:
+            await ensure()
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("object storage bucket check failed")
     yield
     await dispose_engine()
 

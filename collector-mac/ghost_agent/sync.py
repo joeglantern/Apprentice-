@@ -48,6 +48,19 @@ def build_payload(
     }
 
 
+def _is_permanent(exc: httpx.HTTPStatusError) -> bool:
+    """4xx other than timeout/rate limit will not succeed on retry."""
+    code = exc.response.status_code
+    return 400 <= code < 500 and code not in (408, 425, 429)
+
+
+def _detail(exc: httpx.HTTPStatusError) -> str:
+    try:
+        return str(exc.response.json().get("detail", ""))[:200]
+    except ValueError:
+        return exc.response.text[:200]
+
+
 class SyncClient:
     def __init__(
         self,
@@ -122,6 +135,13 @@ class SyncClient:
             return False
         try:
             self._post(payload)
+        except httpx.HTTPStatusError as exc:
+            if _is_permanent(exc):
+                log_event(f"rejected by server ({exc.response.status_code}): {_detail(exc)}")
+                return False
+            log_event(f"upload failed ({exc.response.status_code}); queued for retry")
+            self.enqueue(payload)
+            return False
         except (httpx.HTTPError, OSError) as exc:
             log_event(f"upload failed ({exc.__class__.__name__}); queued for retry")
             self.enqueue(payload)
@@ -148,6 +168,14 @@ class SyncClient:
                 break
             try:
                 self._post(payload)
+            except httpx.HTTPStatusError as exc:
+                if _is_permanent(exc):
+                    log_event(
+                        f"dropped queued item, rejected by server ({exc.response.status_code})"
+                    )
+                    item.unlink(missing_ok=True)
+                    continue
+                break
             except (httpx.HTTPError, OSError):
                 break  # server unreachable; keep the rest for later
             item.unlink(missing_ok=True)

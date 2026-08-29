@@ -32,7 +32,8 @@ class Asset(SQLModel, table=True):
     file_size: int | None = None
     file_uploaded_at: datetime | None = None
 
-    # Lifecycle: received -> stored -> tagged (-> curated, set by the nightly job later)
+    # Tagging state only: received -> tagged. File presence is file_key, kept separate so
+    # the upload route and the worker never overwrite each other.
     status: str = Field(default="received", index=True, max_length=20)
     tags: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
