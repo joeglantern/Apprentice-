@@ -227,7 +227,11 @@ class GhostAgentApp(rumps.App):
             self.store.set_token(r2.text)
         self.sync.base_url = self.store.state.api_base_url
         self.sync.token = self.store.get_token()
-        log_event(f"paired with server {self.sync.base_url}")
+        ok, message = self.sync.check()
+        log_event(("paired with server " if ok else "pairing failed: ") + message)
+        rumps.alert("Paired" if ok else "Pairing failed", message)
+        if ok:
+            threading.Thread(target=self.sync.flush, daemon=True).start()
 
     def quit(self, _: rumps.MenuItem) -> None:
         log_event("agent quit")

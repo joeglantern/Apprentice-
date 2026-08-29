@@ -176,3 +176,36 @@ def test_429_is_retried(agent_home: Path, monkeypatch: pytest.MonkeyPatch) -> No
     p = build_payload(project_name="x", file_path="/tmp/a.png", parsed=PARSED, opted_in=True)
     assert client.send(p) is False
     assert len(client.queued()) == 1
+
+
+def test_check_reports_plain_reasons(agent_home: Path) -> None:
+    import ghost_agent.sync as sync_mod
+
+    real_client = httpx.Client
+
+    def with_status(code: int) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(code, json=[])
+
+        class Patched(real_client):  # type: ignore[misc,valid-type]
+            def __init__(self, **kw: Any) -> None:
+                super().__init__(transport=httpx.MockTransport(handler), **kw)
+
+        sync_mod.httpx.Client = Patched  # type: ignore[attr-defined]
+
+    try:
+        with_status(200)
+        ok, msg = make_client(agent_home).check()
+        assert ok and "Paired" in msg
+        with_status(401)
+        ok, msg = make_client(agent_home).check()
+        assert not ok and "token" in msg
+    finally:
+        sync_mod.httpx.Client = real_client  # type: ignore[attr-defined]
+
+    ok, msg = make_client(agent_home, token=None).check()
+    assert not ok and "token" in msg.lower()
+    ok, msg = SyncClient(
+        "http://127.0.0.1:9", "t", is_paused=lambda: False, is_opted_in=lambda n: True
+    ).check()
+    assert not ok and "Could not connect" in msg

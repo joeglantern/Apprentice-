@@ -184,6 +184,34 @@ class SyncClient:
             log_event(f"flushed {sent} queued item(s)")
         return sent
 
+    def check(self) -> tuple[bool, str]:
+        """Test the pairing. Returns (ok, plain language message)."""
+        if not self.base_url:
+            return False, "No server URL set."
+        if not self.token:
+            return False, "No token set."
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                r = client.get(
+                    f"{self.base_url}/ingest/assets",
+                    params={"limit": 1},
+                    headers={"Authorization": f"Bearer {self.token}"},
+                )
+        except httpx.ConnectError:
+            return False, (
+                f"Could not connect to {self.base_url}. If you use the SSH tunnel, "
+                "make sure the tunnel terminal is still open."
+            )
+        except httpx.TimeoutException:
+            return False, f"{self.base_url} did not answer in time."
+        except (httpx.HTTPError, OSError) as exc:
+            return False, f"Connection failed: {exc.__class__.__name__}."
+        if r.status_code == 401:
+            return False, "The server rejected the token. Check it was pasted completely."
+        if r.status_code >= 400:
+            return False, f"The server answered with status {r.status_code}."
+        return True, f"Paired with {self.base_url}. Uploads will go there."
+
     def _post(self, payload: dict[str, Any]) -> None:
         headers = {"Authorization": f"Bearer {self.token}"}
         body = {k: v for k, v in payload.items() if not k.startswith("_")}
