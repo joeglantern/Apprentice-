@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Starts the VISIBLE menu-bar agent at login. What it starts is a UI app the
+         designer can see, pause, and quit; it is not a headless daemon. -->
+    <key>Label</key>
+    <string>com.designer.ghostagent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <!-- install.sh replaces __PYTHON__ and __AGENT_DIR__ with real paths. On a 2015
+             MacBook Pro / Monterey this is the Homebrew python@3.11, not /usr/bin/python3. -->
+        <string>__PYTHON__</string>
+        <string>__AGENT_DIR__/agent.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__AGENT_DIR__</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Relaunch if it crashes, but NOT if the designer quits it on purpose. -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/ghostagent.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ghostagent.err.log</string>
+</dict>
+</plist>

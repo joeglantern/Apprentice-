@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: -apple-system, system-ui, sans-serif; padding: 12px; }
+      .state { font-weight: 600; margin: 8px 0; }
+      .on { color: #2e8b57; }
+      .off { color: #888; }
+      .muted { color: #888; font-size: 11px; }
+      ul { margin: 4px 0 8px 16px; padding: 0; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <sp-heading size="S">Ghost Agent capture</sp-heading>
+    <div id="state" class="state off">● Off - nothing is being logged</div>
+
+    <sp-checkbox id="capture-toggle">Log layer edits for the active document</sp-checkbox>
+
+    <sp-body size="S">
+      <p>When this is on, each save/history step in Photoshop records:</p>
+      <ul>
+        <li>document name and canvas size</li>
+        <li>layer names, kinds, positions and sizes</li>
+        <li>a timestamp</li>
+      </ul>
+      <p>Nothing else - no pixels, keystrokes, or files outside the document.</p>
+    </sp-body>
+
+    <sp-action-button id="open-log" size="s">Show log location</sp-action-button>
+    <div id="log-path" class="muted"></div>
+
+    <script src="index.js"></script>
+  </body>
+</html>

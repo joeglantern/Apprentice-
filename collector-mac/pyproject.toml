@@ -1,0 +1,42 @@
+[project]
+name = "ghost-agent-collector"
+version = "0.3.0"
+description = "Opt-in, visible menu-bar collector for the Ghost Agent design pipeline (macOS)."
+requires-python = ">=3.11"
+dependencies = [
+    "watchdog>=4.0",
+    "psd-tools>=1.10",
+    "Pillow>=10.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# rumps only installs on macOS; kept optional so the pure-Python modules are
+# testable on any OS.
+mac = ["rumps>=0.4"]
+dev = ["pytest>=8", "ruff>=0.5", "black>=24"]
+
+[project.scripts]
+ghost-agent = "ghost_agent.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ghost_agent*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN"]
+ignore = ["ANN401"]
+
+[tool.black]
+target-version = ["py311", "py312", "py313"]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

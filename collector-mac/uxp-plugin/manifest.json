@@ -1,0 +1,25 @@
+{
+  "id": "com.designer.ghostagent.panel",
+  "name": "Ghost Agent",
+  "version": "0.3.0",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": [
+    { "app": "PS", "minVersion": "23.0.0" }
+  ],
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "ghostAgentPanel",
+      "label": { "default": "Ghost Agent" },
+      "minimumSize": { "width": 260, "height": 200 },
+      "maximumSize": { "width": 600, "height": 800 },
+      "preferredDockedSize": { "width": 300, "height": 260 },
+      "preferredFloatingSize": { "width": 300, "height": 260 }
+    }
+  ],
+  "requiredPermissions": {
+    "localFileSystem": "plugin"
+  },
+  "icons": []
+}
