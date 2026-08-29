@@ -39,3 +39,18 @@ class Asset(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class Checkpoint(SQLModel, table=True):
+    """One trained artefact; its files live under checkpoints/<name>/ in object storage."""
+
+    __tablename__ = "checkpoints"
+
+    name: str = Field(primary_key=True, max_length=64)
+    kind: str = Field(index=True, max_length=20)  # style-lora | layout-vlm
+    base_model: str = Field(max_length=200)
+    files: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    run: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    pushed_by: str = Field(max_length=100)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)

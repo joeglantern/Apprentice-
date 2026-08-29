@@ -190,3 +190,21 @@ async def test_declared_content_length_rejected_early(client: AsyncClient) -> No
     req.headers["content-length"] = "999999999"
     r = await client.send(req)
     assert r.status_code == 413
+
+
+async def test_download_file_and_training_listing(client: AsyncClient) -> None:
+    payload = make_payload()
+    await client.post("/ingest/asset", json=payload, headers=AUTH_A)
+    files = {"file": ("hero.psd", b"8BPS-data", "application/octet-stream")}
+    await client.put(f"/ingest/asset/{payload['asset_id']}/file", files=files, headers=AUTH_A)
+
+    r = await client.get(f"/ingest/asset/{payload['asset_id']}/file", headers=AUTH_B)
+    assert r.status_code == 200
+    assert r.content == b"8BPS-data"
+
+    params = {"all_agents": "true", "status_filter": "tagged"}
+    r = await client.get("/ingest/assets", params=params, headers=AUTH_B)
+    assert [a["asset_id"] for a in r.json()] == [payload["asset_id"]]
+    params = {"all_agents": "true", "since": "2999-01-01T00:00:00Z"}
+    r = await client.get("/ingest/assets", params=params, headers=AUTH_B)
+    assert r.json() == []

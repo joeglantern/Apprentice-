@@ -108,5 +108,7 @@ class AssetRead(BaseModel):
     agent_id: str
     status: str
     file_key: str | None
+    file_size: int | None = None
+    updated_at: datetime
     payload: dict[str, Any]
     tags: dict[str, Any] | None

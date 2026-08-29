@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -25,7 +27,7 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import Asset, utcnow
 from app.queue import enqueue_vision_tagging
-from app.schemas import UUID_PATTERN, AssetPayload, AssetRead, IngestResponse
+from app.schemas import UUID_PATTERN, AssetPayload, AssetRead, IngestResponse, to_naive_utc
 from app.storage import Storage, asset_file_key, get_storage
 
 log = logging.getLogger(__name__)
@@ -170,16 +172,46 @@ async def read_asset(
     return asset
 
 
+@router.get("/asset/{asset_id}/file")
+async def download_asset_file(
+    asset_id: AssetId,
+    session: AsyncSession = Depends(get_session),
+    _agent: str = Depends(verify_agent_token),
+    storage: Storage = Depends(get_storage),
+) -> StreamingResponse:
+    """Any paired agent may read exports (the Legion pulls training data this way)."""
+    asset = await session.get(Asset, asset_id.lower())
+    if asset is None or not asset.file_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No file for this asset")
+    data = await storage.get(asset.file_key)
+    name = asset.file_key.rsplit("/", 1)[-1]
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
 @router.get("/assets", response_model=list[AssetRead])
 async def list_assets(
     project: str | None = None,
+    status_filter: str | None = None,
+    since: datetime | None = None,
+    all_agents: bool = False,
     limit: int = 50,
     session: AsyncSession = Depends(get_session),
     agent_id: str = Depends(verify_agent_token),
 ) -> list[Asset]:
-    stmt = select(Asset).where(Asset.agent_id == agent_id)
+    """Own assets by default; all_agents=true lets the training puller see every agent."""
+    stmt = select(Asset)
+    if not all_agents:
+        stmt = stmt.where(Asset.agent_id == agent_id)
     if project:
         stmt = stmt.where(Asset.source_project == project)
+    if status_filter:
+        stmt = stmt.where(Asset.status == status_filter)
+    if since is not None:
+        stmt = stmt.where(Asset.updated_at >= to_naive_utc(since))
     stmt = stmt.order_by(Asset.captured_at.desc()).limit(min(max(limit, 1), 500))  # type: ignore[attr-defined]
     result = await session.exec(stmt)
     return list(result.all())

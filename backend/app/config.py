@@ -27,6 +27,8 @@ class Settings(BaseSettings):
 
     # Cap on uploaded export files (bytes). PSDs can be large; 512 MB is generous.
     max_upload_bytes: int = 512 * 1024 * 1024
+    # LoRA weights are tens to a few hundred MB.
+    max_checkpoint_bytes: int = 2 * 1024 * 1024 * 1024
 
     cors_origins: str = "*"
 
