@@ -97,7 +97,9 @@ the way a printed poster is structured, using these roles:
 - body: the concrete details a reader needs - date, time, venue, price, phone, handle -
   as short lines separated by newlines, not paragraphs.
 - cta: two or three words, imperative.
-- logo: the brand or business name only, as it would appear as a wordmark.
+- logo: the brand or business name only, as it would appear as a wordmark. Omit this
+  element entirely if the brief names no brand; never write a placeholder like "Brand
+  Name" or "Church Name" anywhere on the poster.
 - image: exactly one. Its image_prompt describes a photographic background for the whole
   poster - the subject, setting, light and mood - with clean negative space. It must not
   ask for any text, lettering, logos or signage; type is added on top afterwards.
@@ -157,8 +159,12 @@ def _user_text(brief: str, width: int, height: int, profile: dict[str, Any] | No
         f"Today's date: {today}\n\n"
         f"Brief: {brief.strip()}\n\nCanvas: {width} x {height} px\n\n"
         f"Designer style profile:\n{_profile_text(profile)}\n\n"
-        "If the brief needs a specific date and none is given, invent one that is "
-        "plausible and in the future relative to today's date above - never a past date.\n\n"
+        "If the brief needs a specific date and none is given, invent one at least two "
+        "weeks after today's date above - never today, never a past date - and write "
+        "dates the way a poster does (12 December 2026), not as ISO strings. The "
+        "designer and his clients are in Kenya: phone numbers are +254 7XX XXX XXX, "
+        "prices are in Kshs, places are real Kenyan places unless the brief says "
+        "otherwise. Every detail must read as real; no placeholder values.\n\n"
         "Produce the design plan."
     )
 
