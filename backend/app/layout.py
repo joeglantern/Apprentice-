@@ -21,8 +21,9 @@ from app.director import DEFAULT_PALETTE, DesignPlan, PlanElement
 # Composition hints appended to every image prompt: the renderer is painting a poster
 # background, so it must leave room for type and must not paint its own lettering.
 IMAGE_PROMPT_SUFFIX = (
-    "poster background photograph, cinematic lighting, strong single subject, clean "
-    "uncluttered negative space, no text, no letters, no logos, no watermark"
+    "photorealistic poster background photograph, shot on a full frame camera, cinematic "
+    "lighting, strong single subject, clean uncluttered negative space, no text, no "
+    "letters, no logos, no watermark"
 )
 
 # Director typeface -> families the app bundles (app/assets/fonts, all OFL). Bebas is a
@@ -205,12 +206,13 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     fade = int((width if landscape else height) * 0.14)
     for i in range(steps):
         opacity = round(scrim_opacity * (1 - (i + 1) / (steps + 1)), 3)
-        # Bands overlap by a pixel so rounding never leaves a hairline seam between them.
-        step = -(-fade // steps) + 1
+        # Edges are cumulative rounded offsets so the bands tile exactly: no gap (a
+        # light hairline) and no overlap (a dark one, doubled opacity).
+        start, end = round(fade * i / steps), round(fade * (i + 1) / steps)
         if landscape:
-            band = {"x": zone["width"] + i * (step - 1), "y": 0, "width": step, "height": height}
+            band = {"x": zone["width"] + start, "y": 0, "width": end - start, "height": height}
         else:
-            band = {"x": 0, "y": zone["y"] - (i + 1) * (step - 1), "width": width, "height": step}
+            band = {"x": 0, "y": zone["y"] - end, "width": width, "height": end - start}
         add(
             {
                 "name": "scrim fade",

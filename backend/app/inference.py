@@ -33,7 +33,8 @@ DEFAULT_NEGATIVE = (
     "text, letters, words, typography, signage, logo, watermark, signature, lowres, "
     "low quality, jpeg artifacts, blurry, out of "
     "focus, worst quality, extra limbs, deformed, disfigured, bad anatomy, cropped, "
-    "duplicate, ugly, oversaturated"
+    "duplicate, ugly, oversaturated, illustration, cartoon, anime, painting, drawing, "
+    "3d render, cgi, vector art"
 )
 
 
