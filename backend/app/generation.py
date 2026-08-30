@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.config import Settings
+from app.critic import pick_best
 from app.director import DesignPlan, DirectorRefused, PlanElement, plan_design
 from app.inference import Renderer
 from app.layout import heuristic_layout
@@ -71,9 +72,22 @@ def run_generation(
     for i, layer in enumerate(image_layers, 1):
         bbox = layer["bbox"]
         w, h = _sdxl_size(bbox["width"], bbox["height"])
-        data = renderer.render(
-            layer.get("image_prompt", prompt), w, h, lora_file, layer.get("scene_text")
-        )
+        image_prompt = layer.get("image_prompt", prompt)
+        scene_text = layer.get("scene_text")
+        n = max(1, int(settings.render_candidates)) if not scene_text else 1
+        candidates = [
+            c
+            for c in (renderer.render(image_prompt, w, h, lora_file, scene_text) for _ in range(n))
+            if c
+        ]
+        data = None
+        if candidates:
+            zone = "bottom half" if height >= width else "left half"
+            best, why = pick_best(candidates, prompt, zone, settings)
+            data = candidates[best]
+            if why:
+                layer["critic"] = why
+                progress("render", {"message": f"Judge picked {best + 1} of {len(candidates)}"})
         if data:
             key = f"renders/{job_id}/{layer['layer_id']}.png"
             storage.put(key, data, "image/png")

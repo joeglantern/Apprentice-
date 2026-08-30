@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     flux_vae: str = "ae.safetensors"
     flux_steps: int = 4
 
+    # Two-seed judge (docs/06 D17): render render_candidates seeds per image layer and
+    # let a small local VLM (through local_director_url) pick one. 1 = off.
+    render_candidates: int = 1
+    critic_model: str = "qwen2.5vl:3b"
+
     def agent_token_map(self) -> dict[str, str]:
         """token -> agent_id"""
         out: dict[str, str] = {}

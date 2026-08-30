@@ -664,3 +664,35 @@ def test_wordmark_is_dropped_when_the_eyebrow_already_names_it() -> None:
     plan.elements = [e for e in plan.elements if e.role != "caption" or "Carnivore" in e.content]
     names = [layer["name"] for layer in heuristic_layout(plan, None)["layers"]]
     assert "wordmark" not in names and "caption" in names
+
+
+def test_two_candidates_are_rendered_and_the_judge_choice_is_kept(
+    storage: FakeStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.generation as gen_mod
+
+    monkeypatch.setattr(gen_mod, "pick_best", lambda cands, brief, zone, settings: (1, "second"))
+
+    class TwoRenderer(FakeRenderer):
+        def render(self, *a: Any, **kw: Any) -> bytes:  # type: ignore[override]
+            self.calls.append(a[:4])
+            return f"img{len(self.calls)}".encode()
+
+    renderer = TwoRenderer()
+    settings = Settings(database_url="sqlite://", render_candidates=2)
+    _, result = run_generation(
+        job_id="55555555-5555-4555-8555-555555555555",
+        prompt="Poster",
+        width=1080,
+        height=1350,
+        aesthetic_version="baseline",
+        lora_file=None,
+        profile=None,
+        settings=settings,
+        renderer=renderer,
+        storage=SyncStorage(storage),
+        progress=lambda stage, data: None,
+    )
+    image = next(layer for layer in result["layers"] if layer["type"] == "image")
+    assert len(renderer.calls) == 2 and image["critic"] == "second"
+    assert storage.objects[image["raster_key"]][0] == b"img2"
