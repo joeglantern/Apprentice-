@@ -737,7 +737,9 @@ def test_face_detail_pass_appends_to_the_sdxl_graph() -> None:
     # The detailer refines the refiner's output with the refiner's own model stack.
     assert fd["image"] == ["8", 0] and graph["9"]["inputs"]["images"] == ["41", 0]
     assert fd["model"] == ["20", 0] and fd["clip"] == ["20", 1]
-    assert fd["positive"] == ["21", 0] and fd["negative"] == ["22", 0]
+    # A dedicated face prompt, not the scene positive (texture-bleed regression).
+    assert fd["positive"] == ["44", 0] and "human face" in graph["44"]["inputs"]["text"]
+    assert graph["44"]["inputs"]["clip"] == ["20", 1] and fd["negative"] == ["22", 0]
     assert fd["denoise"] == 0.4 and fd["bbox_detector"] == ["40", 0] and fd["seed"] == 7
 
     single = sdxl_workflow(
@@ -772,6 +774,7 @@ def test_hand_detail_chains_after_the_face_pass() -> None:
     assert hd["image"] == ["41", 0] and graph["9"]["inputs"]["images"] == ["43", 0]
     assert hd["denoise"] == 0.3 and hd["bbox_detector"] == ["42", 0]
     assert hd["model"] == ["20", 0] and hd["clip"] == ["20", 1]
+    assert hd["positive"] == ["46", 0] and "five fingers" in graph["46"]["inputs"]["text"]
     # Face-only leaves no hand nodes; hands alone (without faces) are not wired.
     face_only = sdxl_workflow(
         "x", 512, 512, None, seed=1, steps=20, base_checkpoint=BASE_CKPT, face_detail=True

@@ -133,6 +133,19 @@ def face_detail_nodes(
         "class_type": "UltralyticsDetectorProvider",
         "inputs": {"model_name": "bbox/face_yolov8m.pt"},
     }
+    # The detail pass re-renders a tight crop; conditioning it on the full scene
+    # prompt bleeds surrounding textures into skin (seen live: a sweater's knit
+    # grafted onto a face). A dedicated face prompt replaces the scene positive.
+    graph["44"] = {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "text": (
+                "a natural human face, detailed realistic skin texture, sharp clear "
+                "eyes, natural teeth, photographic"
+            ),
+            "clip": clip,
+        },
+    }
     graph["41"] = {
         "class_type": "FaceDetailer",
         "inputs": {
@@ -148,7 +161,7 @@ def face_detail_nodes(
             "cfg": 6.5,
             "sampler_name": "dpmpp_2m",
             "scheduler": "karras",
-            "positive": positive,
+            "positive": ["44", 0],
             "negative": negative,
             "denoise": denoise,
             "feather": 5,
@@ -190,6 +203,13 @@ def hand_detail_nodes(
         "class_type": "UltralyticsDetectorProvider",
         "inputs": {"model_name": "bbox/hand_yolov8s.pt"},
     }
+    graph["46"] = {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "text": "a natural relaxed human hand with five fingers, correct anatomy",
+            "clip": clip,
+        },
+    }
     inputs = dict(graph["41"]["inputs"]) if "41" in graph else None
     if inputs is None:
         raise ValueError("hand pass requires the face pass graph as its template")
@@ -201,7 +221,7 @@ def hand_detail_nodes(
             "bbox_detector": ["42", 0],
             "model": model,
             "clip": clip,
-            "positive": positive,
+            "positive": ["46", 0],
             "negative": negative,
         }
     )
