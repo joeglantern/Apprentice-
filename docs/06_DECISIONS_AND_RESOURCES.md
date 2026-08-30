@@ -206,3 +206,35 @@ ComfyUI logs a warning that cu130 (not cu128) would enable optimized CUDA ops
 for this Blackwell card. Noted for a future pass, not applied now - the
 Legion's disk is tight (24GB free after the refiner download) and this isn't
 blocking anything.
+
+## D11 - Base checkpoint and face-detail tooling: researched, not adopted yet (2026-08-30)
+
+Looked for free upgrades to the render stage beyond the base+refiner pipeline (D8).
+
+- **Juggernaut XL** (a well-known SDXL community fine-tune) - checked its actual
+  license rather than trust a summary: it explicitly forbids deploying the model
+  "behind paid API services" without separate commercial licensing from
+  RunDiffusion. Given this project may become paid work for the designer's own
+  business (LBA), that is a real constraint, not a technicality. Not adopted.
+- **DreamShaper XL** - genuine OpenRAIL++ (the same licence as official SDXL
+  base, no extra restriction found), but the readily-available variant is a
+  "turbo" build tuned for 4-8 step / low-cfg sampling, which is not a drop-in
+  replacement for our 30-step base+refiner graph without separately re-tuning
+  sampler settings. Left for a future pass once there is time to verify a
+  standard (non-turbo) build and test it properly rather than swap blind.
+- **ComfyUI-Impact-Pack's FaceDetailer** (fixes small/distorted faces, a known
+  SDXL weakness, exactly the failure mode seen in the group-shot generations) -
+  code is GPL-3.0, which is fine for our use (that licenses the tool, not images
+  produced with it). Not adopted yet for a different reason: its real node graph
+  has on the order of twenty interconnected inputs and the exact wiring could
+  not be confirmed with confidence from documentation alone. Building it blind
+  against a remote machine, with no fast local iteration loop, risked breaking
+  a render pipeline that already works. Worth revisiting with either live
+  ComfyUI-side testing (someone iterating in the actual node editor) or a
+  known-good exported workflow JSON to start from, rather than a hand-built
+  graph.
+
+Net effect: stayed on official `sd_xl_base_1.0.safetensors` (Stability AI's own
+OpenRAIL++ licence, zero restriction found) plus the existing refiner. Added
+instead: a hires-fix second pass (upscale + light re-render), same category of
+technique as the refiner, no new licence questions, no new dependencies.
