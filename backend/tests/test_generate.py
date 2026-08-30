@@ -55,6 +55,23 @@ def test_layout_portrait_puts_image_on_top() -> None:
     assert image["bbox"]["y"] < headline["bbox"]["y"]
 
 
+def test_layout_text_stays_readable_on_a_low_contrast_palette() -> None:
+    """Regression: a director-picked palette of two close warm tones (real case, e.g.
+    #EB7F35 on #F2AC6F) must not produce near-invisible text."""
+    from app.layout import _contrast_ratio
+
+    plan = heuristic_plan("Concert poster", 1080, 1350, None)
+    plan.palette_intent = ["#EB7F35", "#F2AC6F"]
+    layout = heuristic_layout(plan, None)
+    bg = next(layer for layer in layout["layers"] if layer["type"] == "shape")["color"]["hex"]
+    for layer in layout["layers"]:
+        if layer["type"] != "text":
+            continue
+        text_colour = layer["color"]["hex"]
+        against = layer.get("background", {}).get("hex", bg)
+        assert _contrast_ratio(text_colour, against) >= 4.5, layer["name"]
+
+
 BASE_CKPT = "sd_xl_base_1.0.safetensors"
 
 

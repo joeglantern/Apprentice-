@@ -27,6 +27,33 @@ def _dominant(profile: dict[str, Any] | None, key: str, default: str) -> str:
     return entries[0]["value"] if entries else default
 
 
+def _srgb_to_linear(c: float) -> float:
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _relative_luminance(hex_colour: str) -> float:
+    r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    r, g, b = _srgb_to_linear(r), _srgb_to_linear(g), _srgb_to_linear(b)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast_ratio(a: str, b: str) -> float:
+    """WCAG contrast ratio, 1 (identical) to 21 (black on white)."""
+    la, lb = _relative_luminance(a) + 0.05, _relative_luminance(b) + 0.05
+    return max(la, lb) / min(la, lb)
+
+
+def _readable_text_colour(candidate: str, background: str, min_ratio: float = 4.5) -> str:
+    """The plan's palette colour if it reads clearly against the background, otherwise
+    whichever of near-black/near-white actually contrasts - never silently unreadable
+    text, which a director-picked palette can produce (e.g. two close warm tones)."""
+    if _contrast_ratio(candidate, background) >= min_ratio:
+        return candidate
+    white_ratio = _contrast_ratio("#FFFFFF", background)
+    black_ratio = _contrast_ratio("#111111", background)
+    return "#FFFFFF" if white_ratio >= black_ratio else "#111111"
+
+
 def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[str, Any]:
     width, height = plan.canvas["width"], plan.canvas["height"]
     # Clamped so an unusual profile (e.g. mostly centred single-block designs, whose
@@ -38,9 +65,10 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         _profile_value(profile, "type_size_ratio", "headline_median", default=0.05)
     )
     palette = plan.palette_intent or list(DEFAULT_PALETTE)
-    fg = palette[0]
     bg = palette[1] if len(palette) > 1 else "#FFFFFF"
-    accent = palette[2] if len(palette) > 2 else fg
+    accent = palette[2] if len(palette) > 2 else palette[0]
+    fg = _readable_text_colour(palette[0], bg)
+    accent = _readable_text_colour(accent, bg)
 
     ordered = sorted(plan.elements, key=lambda e: e.priority)
     layers: list[dict[str, Any]] = []
@@ -133,7 +161,9 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         }
         if element.role == "cta":
             layer["background"] = {"hex": accent, "opacity": 1.0}
-            layer["color"] = {"hex": bg, "opacity": 1.0}
+            # Contrast against the button's own fill, not the page background - accent
+            # was only checked against the page, not against itself.
+            layer["color"] = {"hex": _readable_text_colour(bg, accent), "opacity": 1.0}
         add(layer)
         y += h + int(size * 0.8)
         if y > height - margin:

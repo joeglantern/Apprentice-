@@ -7,6 +7,7 @@ The gateway IP (e.g. 172.21.0.1) is private to the ghostagent_default docker net
 and has no route from the public internet, so this does not expose anything externally
 - only containers on that network, and other local processes, can reach it.
 """
+
 import argparse
 import asyncio
 import logging
@@ -26,7 +27,12 @@ async def pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> No
         writer.close()
 
 
-async def handle(local_reader, local_writer, target_host: str, target_port: int) -> None:
+async def handle(
+    local_reader: asyncio.StreamReader,
+    local_writer: asyncio.StreamWriter,
+    target_host: str,
+    target_port: int,
+) -> None:
     peer = local_writer.get_extra_info("peername")
     try:
         remote_reader, remote_writer = await asyncio.open_connection(target_host, target_port)
