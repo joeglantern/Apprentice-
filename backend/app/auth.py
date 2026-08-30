@@ -12,7 +12,8 @@ from app.config import Settings, get_settings
 _bearer = HTTPBearer(auto_error=False)
 
 
-def _agent_for_token(presented: str, settings: Settings) -> str | None:
+def agent_for_token(presented: str, settings: Settings) -> str | None:
+    """Public: also used by realtime.py to authenticate the Socket.IO handshake."""
     presented_bytes = presented.encode("utf-8", errors="replace")
     for token, agent_id in settings.agent_token_map().items():
         if secrets.compare_digest(presented_bytes, token.encode("utf-8", errors="replace")):
@@ -36,11 +37,11 @@ def verify_agent_token(
     <img> tag) cannot carry an Authorization header - never rely on it over the header
     when both are available, and never log a URL containing it."""
     if credentials is not None and credentials.scheme.lower() == "bearer":
-        agent_id = _agent_for_token(credentials.credentials, settings)
+        agent_id = agent_for_token(credentials.credentials, settings)
         if agent_id is not None:
             return agent_id
     if token is not None:
-        agent_id = _agent_for_token(token, settings)
+        agent_id = agent_for_token(token, settings)
         if agent_id is not None:
             return agent_id
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or invalid agent token")
