@@ -264,3 +264,31 @@ results throughout this session. The code stays in the repo, off by default,
 in case a lower denoise value or a different upscale method is worth trying
 later; not a priority right now given base+refiner alone is already working
 well.
+
+## D13 - Two auth gaps closed in the app's own data paths (2026-08-30)
+
+Neither was reported; both turned up doing a pass over how the app actually
+authenticates against the backend, once the generation-history feature made it
+worth checking end to end.
+
+- **Rendered layer images had no auth at all.** `CanvasPreview.tsx` was
+  rendering `layer.raster_url` straight from the backend's JSON response - a
+  relative, unauthenticated path meant as a human-readable hint, not something
+  a client can fetch. `verify_agent_token` now also accepts the agent token as
+  a `?token=` query param (a header-only check can't work here: react-native-svg's
+  `Image` href can't carry an `Authorization` header), and a bad query token can
+  never override a valid header or vice versa. `CanvasPreview` now builds the
+  real URL itself via `rasterUrl(jobId, layerId)` instead of trusting the
+  field.
+- **The Socket.IO progress channel had no auth at all.** `join()` would put any
+  connecting client into any job's progress room just by knowing or guessing
+  its `job_id` - every REST route in this API sits behind a bearer token, this
+  one didn't. `connect()` now checks the same token before the handshake
+  succeeds, and `join()` separately checks that the connecting agent is the one
+  who actually requested that job before it's let into the room - connecting
+  with a valid token doesn't imply the right to watch just any job.
+
+Both are covered by tests now (`test_query_param_token_is_a_fallback_not_a_bypass`,
+`test_realtime.py`). `list_jobs` was also changed at the same time to select
+only the summary columns the history list actually reads, not full rows with
+`plan`/`result`, which can be large and were never read by that view.
