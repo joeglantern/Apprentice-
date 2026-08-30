@@ -431,3 +431,20 @@ sizes, date badges, icons, and for standalone photographs and logos alongside po
 - **Photoreal humans and animals**: SDXL base is adequate; the free upgrade to
   check next is a photoreal SDXL fine-tune (RealVisXL) - license to be read
   directly before adopting, as with D11.
+
+## D17 - Two-seed judge (2026-08-30)
+
+SDXL's bad outputs are a minority: a stray letter, a mangled hand, the subject parked
+where the type goes. `RENDER_CANDIDATES=2` renders two seeds per image layer and
+Qwen2.5-VL 3B (Ollama, same instance as the director, `CRITIC_MODEL`) scores them
+on brief match, photographic cleanliness, absence of lettering, negative space in
+the text zone, and anatomy, then picks one. One extra render per poster; off by
+default until measured on a batch. Any judge failure keeps the first render.
+Layers with `scene_text` (Flux) are not double rendered.
+
+What would move quality further, in order: RealVisXL as the photo checkpoint
+(license to read first), an East African context LoRA from CC-BY/CC0 Wikimedia
+Commons photographs so "Nairobi" stops looking generic, brand kits (palette plus
+logo file carried by a brief so a series stays on-brand), the Crello layout
+pretraining (D14, blocked on disk), and an edit loop in the app (re-render just
+the photo, swap composition or typeface without replanning).
