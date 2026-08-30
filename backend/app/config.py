@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     flux_vae: str = "ae.safetensors"
     flux_steps: int = 4
 
+    # Face detail pass (docs/06 D18): after an SDXL render, detect faces with
+    # face_yolov8m and re-render each at full resolution via Impact Pack's
+    # FaceDetailer. Fixes the few-pixels-per-face mush; needs the Impact Pack
+    # loaded on the Legion. Off for Flux renders (scene_text), which are cleaner.
+    face_detail: bool = True
+    face_detail_denoise: float = 0.45
+
     # Two-seed judge (docs/06 D17): render render_candidates seeds per image layer and
     # let a small local VLM (through local_director_url) pick one. 1 = off.
     render_candidates: int = 1

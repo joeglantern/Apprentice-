@@ -115,6 +115,63 @@ def flux_workflow(
     }
 
 
+def face_detail_nodes(
+    graph: dict[str, Any],
+    *,
+    seed: int,
+    denoise: float,
+    model: list[Any],
+    clip: list[Any],
+    positive: list[Any],
+    negative: list[Any],
+) -> None:
+    """Appends a face-detail pass to a finished SDXL graph (docs/06 D18): detect faces
+    with face_yolov8m, re-render each region at guide_size resolution, paste back.
+    Rewires SaveImage to the detailed image. Field set mirrors the live FaceDetailer
+    schema fetched from /object_info, not documentation."""
+    graph["40"] = {
+        "class_type": "UltralyticsDetectorProvider",
+        "inputs": {"model_name": "bbox/face_yolov8m.pt"},
+    }
+    graph["41"] = {
+        "class_type": "FaceDetailer",
+        "inputs": {
+            "image": graph["9"]["inputs"]["images"],
+            "model": model,
+            "clip": clip,
+            "vae": graph["8"]["inputs"]["vae"],
+            "guide_size": 512,
+            "guide_size_for": True,
+            "max_size": 1024,
+            "seed": seed,
+            "steps": 14,
+            "cfg": 6.5,
+            "sampler_name": "dpmpp_2m",
+            "scheduler": "karras",
+            "positive": positive,
+            "negative": negative,
+            "denoise": denoise,
+            "feather": 5,
+            "noise_mask": True,
+            "force_inpaint": True,
+            "bbox_threshold": 0.5,
+            "bbox_dilation": 10,
+            "bbox_crop_factor": 3.0,
+            "sam_detection_hint": "center-1",
+            "sam_dilation": 0,
+            "sam_threshold": 0.93,
+            "sam_bbox_expansion": 0,
+            "sam_mask_hint_threshold": 0.7,
+            "sam_mask_hint_use_negative": "False",
+            "drop_size": 10,
+            "bbox_detector": ["40", 0],
+            "wildcard": "",
+            "cycle": 1,
+        },
+    }
+    graph["9"]["inputs"]["images"] = ["41", 0]
+
+
 def scene_text_prompt(prompt: str, scene_text: str) -> str:
     """Flux reads quoted text literally; everything else about the sign is left to the
     scene description so it looks like it belongs there."""
@@ -136,6 +193,8 @@ def sdxl_workflow(
     hires_scale: float = 1.0,
     hires_denoise: float = 0.4,
     hires_steps: int = 12,
+    face_detail: bool = False,
+    face_detail_denoise: float = 0.45,
 ) -> dict[str, Any]:
     """Base-only graph when refiner_checkpoint is empty; base+refiner two-stage graph
     otherwise. refiner_switch is the fraction of steps the base model runs before
@@ -274,6 +333,17 @@ def sdxl_workflow(
         "class_type": "SaveImage",
         "inputs": {"filename_prefix": "ghost", "images": ["8", 0]},
     }
+    if face_detail:
+        final_clip = ["20", 1] if refiner_checkpoint else clip_ref
+        face_detail_nodes(
+            graph,
+            seed=seed,
+            denoise=face_detail_denoise,
+            model=final_model,
+            clip=final_clip,
+            positive=final_positive,
+            negative=final_negative,
+        )
     return graph
 
 
@@ -293,7 +363,11 @@ class ComfyRenderer:
         hires_denoise: float = 0.4,
         hires_steps: int = 12,
         flux: dict[str, Any] | None = None,
+        face_detail: bool = False,
+        face_detail_denoise: float = 0.45,
     ) -> None:
+        self.face_detail = face_detail
+        self.face_detail_denoise = face_detail_denoise
         self.flux = flux  # {"unet", "t5", "clip_l", "vae", "steps"} or None when not installed
         self.base_url = base_url.rstrip("/")
         self.name = name
@@ -361,6 +435,8 @@ class ComfyRenderer:
                 hires_scale=self.hires_scale,
                 hires_denoise=self.hires_denoise,
                 hires_steps=self.hires_steps,
+                face_detail=self.face_detail,
+                face_detail_denoise=self.face_detail_denoise,
             )
         with httpx.Client(base_url=self.base_url, timeout=30.0) as client:
             r = client.post("/prompt", json={"prompt": graph, "client_id": client_id})
@@ -413,6 +489,8 @@ def pick_renderer(settings: Settings) -> Renderer:
             hires_scale=settings.sdxl_hires_scale,
             hires_denoise=settings.sdxl_hires_denoise,
             hires_steps=settings.sdxl_hires_steps,
+            face_detail=settings.face_detail,
+            face_detail_denoise=settings.face_detail_denoise,
             flux=(
                 {
                     "unet": settings.flux_unet,

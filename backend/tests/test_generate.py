@@ -717,3 +717,36 @@ def test_wordmark_is_dropped_when_the_headline_already_names_it() -> None:
     plan.elements.append(PlanElement(role="logo", content="Furaha Homes", priority=5))
     names = [layer["name"] for layer in heuristic_layout(plan, None)["layers"]]
     assert "wordmark" not in names
+
+
+def test_face_detail_pass_appends_to_the_sdxl_graph() -> None:
+    graph = sdxl_workflow(
+        "a portrait",
+        832,
+        1216,
+        None,
+        seed=7,
+        steps=30,
+        base_checkpoint=BASE_CKPT,
+        refiner_checkpoint="sd_xl_refiner_1.0.safetensors",
+        face_detail=True,
+        face_detail_denoise=0.4,
+    )
+    assert graph["40"]["inputs"]["model_name"] == "bbox/face_yolov8m.pt"
+    fd = graph["41"]["inputs"]
+    # The detailer refines the refiner's output with the refiner's own model stack.
+    assert fd["image"] == ["8", 0] and graph["9"]["inputs"]["images"] == ["41", 0]
+    assert fd["model"] == ["20", 0] and fd["clip"] == ["20", 1]
+    assert fd["positive"] == ["21", 0] and fd["negative"] == ["22", 0]
+    assert fd["denoise"] == 0.4 and fd["bbox_detector"] == ["40", 0] and fd["seed"] == 7
+
+    single = sdxl_workflow(
+        "a portrait", 832, 1216, None, seed=7, steps=20, base_checkpoint=BASE_CKPT, face_detail=True
+    )
+    assert single["41"]["inputs"]["model"] == ["4", 0] and single["41"]["inputs"]["clip"] == [
+        "4",
+        1,
+    ]
+
+    off = sdxl_workflow("a portrait", 832, 1216, None, seed=7, steps=20, base_checkpoint=BASE_CKPT)
+    assert "40" not in off and "41" not in off and off["9"]["inputs"]["images"] == ["8", 0]
