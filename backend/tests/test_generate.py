@@ -653,3 +653,14 @@ def test_detail_lines_get_icons_and_the_body_shifts_right() -> None:
     plan.composition = "centered"
     layout = heuristic_layout(plan, None)
     assert not [layer for layer in layout["layers"] if layer["type"] == "icon"]
+
+
+def test_wordmark_is_dropped_when_the_eyebrow_already_names_it() -> None:
+    plan = heuristic_plan("Concert", 1080, 1350, None)
+    plan.elements.append(PlanElement(role="logo", content="Carnivore Grounds", priority=5))
+    plan.elements.append(
+        PlanElement(role="caption", content="Live at Carnivore Grounds", priority=4)
+    )
+    plan.elements = [e for e in plan.elements if e.role != "caption" or "Carnivore" in e.content]
+    names = [layer["name"] for layer in heuristic_layout(plan, None)["layers"]]
+    assert "wordmark" not in names and "caption" in names
