@@ -157,21 +157,30 @@ async def _local_plan(
     brief: str, width: int, height: int, profile: dict[str, Any] | None, settings: Settings
 ) -> DesignPlan | None:
     """Returns None (never raises) when the local model is unreachable or answers badly,
-    so the caller can fall back to the heuristic plan without the job failing."""
+    so the caller can fall back to the heuristic plan without the job failing. A smaller
+    local model is meaningfully less consistent than a hosted frontier one - one retry on
+    a validation failure (not on a connection failure, which is unlikely to change) is
+    cheap and, empirically, recovers a real share of otherwise-wasted heuristic fallbacks."""
     schema = DesignPlan.model_json_schema()
-    try:
-        content = await _call_local_director(
-            settings, _user_text(brief, width, height, profile), schema
-        )
-        plan = DesignPlan.model_validate_json(content)
-    except (httpx.HTTPError, ValidationError, KeyError, ValueError) as exc:
-        log.warning(
-            "local director unavailable or answered badly (%s); using the heuristic plan", exc
-        )
-        return None
-    plan.canvas = {"width": width, "height": height}
-    plan.source = "director"
-    return plan
+    user_text = _user_text(brief, width, height, profile)
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            content = await _call_local_director(settings, user_text, schema)
+        except httpx.HTTPError as exc:
+            log.warning("local director unreachable (%s); using the heuristic plan", exc)
+            return None
+        try:
+            plan = DesignPlan.model_validate_json(content)
+        except (ValidationError, ValueError) as exc:
+            last_exc = exc
+            log.warning("local director answered badly on attempt %d (%s)", attempt + 1, exc)
+            continue
+        plan.canvas = {"width": width, "height": height}
+        plan.source = "director"
+        return plan
+    log.warning("local director answered badly twice (%s); using the heuristic plan", last_exc)
+    return None
 
 
 async def _anthropic_plan(

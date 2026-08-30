@@ -67,6 +67,61 @@ async def test_local_backend_failure_falls_back_to_heuristic(
     assert plan.source == "heuristic"
 
 
+async def test_local_backend_retries_once_before_falling_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bad first response (real behaviour observed from the local model) should not
+    waste the whole generation on the heuristic plan if a retry would have worked."""
+    import app.director as director_mod
+
+    good_plan = {
+        "rationale": "Recovered on the second try.",
+        "canvas": {"width": 1, "height": 1},
+        "mood": ["bold"],
+        "palette_intent": ["#111111"],
+        "elements": [
+            {"role": "headline", "content": "Second Try", "priority": 1, "notes": ""},
+            {"role": "image", "content": "a picture", "priority": 2, "notes": ""},
+        ],
+    }
+    calls = {"n": 0}
+
+    async def flaky(settings, user_text, schema) -> str:  # noqa: ANN001, ARG001
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "not json at all"
+        return json.dumps(good_plan)
+
+    monkeypatch.setattr(director_mod, "_call_local_director", flaky)
+    settings = _settings(local_director_url="http://legion:11434")
+    plan = await plan_design("Jazz night poster", 1600, 900, PROFILE, settings)
+    assert calls["n"] == 2
+    assert plan.source == "director"
+    assert plan.rationale == "Recovered on the second try."
+
+
+async def test_local_backend_connection_error_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection failure is unlikely to succeed on an immediate retry - fall back
+    straight away rather than doubling the wait on an unreachable model."""
+    import httpx
+
+    import app.director as director_mod
+
+    calls = {"n": 0}
+
+    async def broken(settings, user_text, schema) -> str:  # noqa: ANN001, ARG001
+        calls["n"] += 1
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(director_mod, "_call_local_director", broken)
+    settings = _settings(local_director_url="http://legion:11434")
+    plan = await plan_design("Jazz night poster", 1600, 900, PROFILE, settings)
+    assert calls["n"] == 1
+    assert plan.source == "heuristic"
+
+
 async def test_local_backend_bad_json_falls_back_to_heuristic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
