@@ -64,11 +64,14 @@ SCORE_PROMPT = (
     "Score this generated portrait 1-10 on face integrity: natural eyes, correct "
     "teeth, no warped features, no extra or fused fingers if hands are visible, no "
     "AI artefacts. Answer with only JSON: "
-    '{"score": n, "problems": []}' with problems listing actual defects like ''"extra fingers"'', empty when none.
+    '{"score": n, "problems": []} - problems lists actual defects, e.g. "extra fingers"; '
+    "leave it empty when there are none."
 )
 
 
-def render(api_url: str, token: str, prompt: str, timeout: int = 1500) -> tuple[str | None, bytes | None]:
+def render(
+    api_url: str, token: str, prompt: str, timeout: int = 1500
+) -> tuple[str | None, bytes | None]:
     import httpx
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -162,7 +165,9 @@ def main() -> int:
     for name, prompt in MATRIX:
         job_id, image = render(api_url, token, prompt)
         if image is None:
-            rows.append({"name": name, "job_id": job_id, "score": None, "problems": ["render failed"]})
+            rows.append(
+                {"name": name, "job_id": job_id, "score": None, "problems": ["render failed"]}
+            )
             continue
         verdict = score(image, args.ollama)
         rows.append({"name": name, "job_id": job_id, **verdict})
