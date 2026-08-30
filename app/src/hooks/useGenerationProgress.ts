@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
-import { socketBaseUrl } from "@/lib/api";
+import { authToken, socketBaseUrl } from "@/lib/api";
 import type { ProgressEvent } from "@/lib/types";
 
 /** Live progress for one job, over the same Socket.IO room the worker emits into
@@ -12,7 +12,12 @@ export function useGenerationProgress(jobId: string | null) {
 
   useEffect(() => {
     if (!jobId) return;
-    const socket: Socket = io(socketBaseUrl(), { transports: ["websocket"] });
+    // auth is checked server-side on connect (realtime.py) - joining a room the
+    // token's agent doesn't own is refused there too, not just at the handshake.
+    const socket: Socket = io(socketBaseUrl(), {
+      transports: ["websocket"],
+      auth: { token: authToken() },
+    });
     socket.on("connect", () => socket.emit("join", { room: jobId }));
     socket.on("progress", (data: ProgressEvent) => {
       if (data.job_id === jobId) setProgress(data);
