@@ -51,6 +51,18 @@ async def test_auth_required(client: AsyncClient) -> None:
     assert (await client.post("/ingest/asset", json=payload, headers=bad)).status_code == 401
 
 
+async def test_query_param_token_is_a_fallback_not_a_bypass(client: AsyncClient) -> None:
+    """The ?token= fallback exists only for contexts that can't set a header (an <img>
+    tag loading a raster) - it must accept a valid token there, but never let a bad
+    query token override a good header, or a bad header block a good query token."""
+    r = await client.get("/ingest/assets", params={"token": "token-a"})
+    assert r.status_code == 200
+    r = await client.get("/ingest/assets", params={"token": "not-a-real-token"})
+    assert r.status_code == 401
+    r = await client.get("/ingest/assets", headers=AUTH_A, params={"token": "not-a-real-token"})
+    assert r.status_code == 200  # good header wins even with a bad query token present
+
+
 async def test_validation_errors(client: AsyncClient) -> None:
     r = await client.post("/ingest/asset", json=make_payload(palette=["red"]), headers=AUTH_A)
     assert r.status_code == 422

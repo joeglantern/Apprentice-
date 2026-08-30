@@ -50,6 +50,18 @@ class JobRead(BaseModel):
     updated_at: Any
 
 
+class JobSummary(BaseModel):
+    """The list view's row shape - no plan/result, which can be large and are never
+    read by the history list (only GET /generate/{id} on the one job someone opens)."""
+
+    job_id: str
+    status: Literal["queued", "planning", "layout", "render", "done", "error"]
+    prompt: str
+    aesthetic_version: str
+    created_at: Any
+    updated_at: Any
+
+
 class Aesthetic(BaseModel):
     version: str
     label: str
@@ -101,18 +113,31 @@ async def read_job(
     return job
 
 
-@router.get("/generate", response_model=list[JobRead])
+@router.get("/generate", response_model=list[JobSummary])
 async def list_jobs(
     limit: int = 50,
     session: AsyncSession = Depends(get_session),
     agent_id: str = Depends(verify_agent_token),
-) -> list[Job]:
+) -> list[JobSummary]:
     """The requesting agent's own generation history, newest first - what a
-    collaborator sees when they come back to the app to look at past results."""
-    stmt = select(Job).where(Job.requested_by == agent_id)
-    stmt = stmt.order_by(Job.created_at.desc()).limit(min(max(limit, 1), 200))  # type: ignore[attr-defined]
-    result = await session.exec(stmt)
-    return list(result.all())
+    collaborator sees when they come back to the app to look at past results.
+    Selects only the summary columns, not plan/result, which can be large and are
+    never read by this view (opening one job uses GET /generate/{id} instead)."""
+    stmt = (
+        select(
+            Job.job_id,
+            Job.status,
+            Job.prompt,
+            Job.aesthetic_version,
+            Job.created_at,
+            Job.updated_at,
+        )
+        .where(Job.requested_by == agent_id)
+        .order_by(Job.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+    )
+    rows = (await session.exec(stmt)).all()
+    return [JobSummary(**row._mapping) for row in rows]
 
 
 @router.get("/generate/{job_id}/raster/{layer_id}")

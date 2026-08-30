@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import io
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.config import Settings
 from app.director import DesignPlan, PlanElement, heuristic_plan
@@ -317,6 +321,39 @@ async def test_list_jobs_scoped_to_agent(
 
     r = await client.get("/generate", headers=AUTH_B)
     assert [j["prompt"] for j in r.json()] == ["poster for agent b"]
+
+
+async def test_list_jobs_newest_first_and_limit(
+    client: AsyncClient,
+    session_maker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.routes.generate as gen_mod
+    from app.models import Job
+
+    monkeypatch.setattr(gen_mod, "enqueue_generation", lambda job_id: None)
+    for i in range(3):
+        await client.post("/generate", json={"prompt": f"poster {i}"}, headers=AUTH_A)
+
+    # Give each row a distinct, known created_at so ordering is asserted for real,
+    # not by accident of three inserts happening within the same test.
+    async with session_maker() as session:
+        rows = (await session.exec(select(Job).where(Job.requested_by == "mac-m4"))).all()
+        by_prompt = {row.prompt: row for row in rows}
+        for i in range(3):
+            row = by_prompt[f"poster {i}"]
+            row.created_at = datetime(2026, 1, 1) + timedelta(hours=i)
+            session.add(row)
+        await session.commit()
+
+    r = await client.get("/generate", headers=AUTH_A)
+    assert [j["prompt"] for j in r.json()] == ["poster 2", "poster 1", "poster 0"]
+
+    r = await client.get("/generate", params={"limit": 2}, headers=AUTH_A)
+    assert [j["prompt"] for j in r.json()] == ["poster 2", "poster 1"]
+
+    r = await client.get("/generate", params={"limit": 0}, headers=AUTH_A)
+    assert len(r.json()) == 1  # clamped to at least 1, never "no limit" / empty
 
 
 def test_design_plan_schema_roundtrip() -> None:
