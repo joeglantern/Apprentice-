@@ -351,3 +351,51 @@ non-commercial-only dataset is not usable here regardless of fit:
   professional's for the same brief," not for training.
 
 Full writeup with the schema comparison in doc 03 §4.
+
+## D15 - Posters laid out like posters; typefaces; Flux for in-photo words (2026-08-30)
+
+The first full posters through the pipeline looked like a photo slapped beside some
+text, and that was accurate: `layout.py` was building a web hero (image boxed in a
+right column, flat colour block, small text stacked left), because nothing in the
+pipeline could put type over a photo legibly, so it never tried. Fixed as one unit:
+
+- **Poster recipe.** Full-bleed photo rendered at the canvas aspect; a scrim over
+  the text zone (left on landscape, bottom on portrait) that fades into the photo
+  through stepped bands (the layer schema has no gradients); a type stack anchored
+  to the bottom of the zone: letter-spaced uppercase eyebrow, accent bar, headline
+  at no less than 7.5 percent of canvas width, subhead, details one per line, a
+  filled button. Contrast is checked against the scrim as it composites over a
+  photo. `logo` becomes a small wordmark, never the literal words "X logo".
+- **Director writes poster copy** (five-word headline, eyebrow, details as lines,
+  cta), gets two full example plans in the prompt (a small local model moves far
+  more on examples than on rules), and is told: Kenyan phone numbers and prices,
+  dates at least two weeks out written the poster way, no placeholders, omit the
+  logo element rather than invent a brand. Thinking models get `think: false`.
+- **Renderer told to leave room.** Every background prompt ends with clean negative
+  space / no text / no letters; "letters, words, typography, signage, logo" joined
+  the negative prompt. SDXL's own lettering was the source of the gibberish.
+- **Typefaces.** Arial was the weakest thing on the page. Four OFL faces are
+  bundled in `app/assets/fonts` (Inter, Bebas Neue, Playfair Display, Space
+  Grotesk); the director picks a pairing per piece by mood; the designer's own
+  dominant font still wins once a profile exists.
+- **Words inside the photograph.** SDXL cannot spell. An image element may carry
+  `scene_text` (one to three words on a sign or banner, only when the brief asks);
+  that layer alone renders with FLUX.1-schnell (Apache 2.0, checked) as a Q4_K_S
+  GGUF through ComfyUI-GGUF, which fits the 8GB card. Set `FLUX_UNET` to enable;
+  without it the layer falls back to SDXL and the words are simply absent.
+  Everything else stays real type on top, which is the only way copy is guaranteed
+  correct - this is the lane, not "make the image model write the poster".
+- **Default canvas** is now 1080x1350 portrait.
+- **Planner model.** Moving from qwen2.5:7b-instruct to qwen3:8b (both fit at
+  Q4); the placeholder and 555-number mistakes were model strength, not prompt.
+- **Worker concurrency** stays at 1: two renders at once on one 8GB GPU time out.
+
+Crello (D14) in practice: the dataset card's schema is wrong. Streaming produced
+nothing in ten minutes because the element previews share the parquet shards with
+the layout columns; shards are downloaded whole and read column-wise with pyarrow.
+`type`, `font`, `text_align`, `category`, `format` are integer class labels whose
+names live in the parquet metadata; boxes are absolute pixels; colours are rgba
+strings; bold is per character. One shard (500 MB) yields 626 usable layouts;
+the full train split is 31 shards, about 15 GB, which the Legion cannot hold until
+the 70 GB OneDrive cache is dealt with (C: was at 6.6 GB free; clearing the npm
+cache alone recovered 17.8 GB).
