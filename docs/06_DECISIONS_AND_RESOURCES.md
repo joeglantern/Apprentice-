@@ -503,3 +503,19 @@ denoise 0.35) chains after the face pass and shipped in the same window.
 The v12 portrait set is the face-quality evidence: eight face-heavy briefs -
 laughing grandmother, barbershop, bride, runners, teacher, fisherman, dancers,
 DJ - all with clean teeth, eyes and hands through the detail passes.
+
+## D20 - Revise loop, face-integrity harness; smoke-tested live (2026-08-31)
+
+POST /generate/{id}/revise turns a finished poster into a new job with the same
+plan and a composition or typeface override, skipping the director, and reuses
+the already rendered photo unless a fresh one is asked for - a tweak costs
+seconds instead of a full pipeline run (migration 0006 stores provenance). The
+canvas screen grew plain chips for it. Smoke-tested live together with brand
+kits: a branded Umoja Threads brief came back with the exact bound palette and
+typeface, and its split revision reused the raster.
+
+ghost_training/eval_faces.py is the face-integrity harness: a fixed, append-only
+portrait matrix across skin tones, ages, a group and a hands shot, rendered
+through the production pipeline and scored by the local VLM; the report carries
+the mean, the worst row, and the skin-tone spread as the bias signal. First
+baseline run pending a quiet render queue.
