@@ -8,7 +8,12 @@ services:
 
   worker:
     build: .
-    command: celery -A app.worker.celery_app worker -B --loglevel=info --concurrency=2
+    # concurrency=1: generate_design renders on the Legion's single 8GB GPU through
+    # ComfyUI - two running at once means VRAM contention slows both down, not real
+    # parallelism, and each can end up individually exceeding INFERENCE_TIMEOUT_S
+    # (seen live: submitting several jobs together timed out the ones that landed on
+    # the GPU at the same time). tag_asset is cheap and queues fine behind a render.
+    command: celery -A app.worker.celery_app worker -B --loglevel=info --concurrency=1
     env_file: .env
     depends_on: [postgres, redis]
     restart: unless-stopped
