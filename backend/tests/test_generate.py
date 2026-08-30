@@ -304,6 +304,58 @@ async def test_generate_routes(client: AsyncClient, monkeypatch: pytest.MonkeyPa
     assert r.status_code == 404
 
 
+async def test_raster_route_accepts_the_query_param_fallback(
+    client: AsyncClient,
+    storage: FakeStorage,
+    session_maker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The raster route is the one place a ?token= query param must work - it's loaded
+    by react-native-svg's Image href, which can't set an Authorization header. A bad
+    query token must still 401, and a good header must still work with no query token
+    at all (every other route's behaviour, unchanged by this route's extra fallback)."""
+    from app.models import Job
+
+    storage.objects["renders/job-raster-1/L02.png"] = (b"\x89PNG-fake", "image/png")
+    async with session_maker() as session:
+        session.add(
+            Job(
+                job_id="33333333-3333-4333-8333-333333333333",
+                prompt="a poster",
+                aesthetic_version="baseline",
+                width=1600,
+                height=900,
+                requested_by="mac-m4",
+                status="done",
+                result={
+                    "canvas_width": 1600,
+                    "canvas_height": 900,
+                    "aesthetic_version": "baseline",
+                    "renderer": "legion",
+                    "layers": [
+                        {
+                            "layer_id": "L02",
+                            "name": "hero visual",
+                            "type": "image",
+                            "z_index": 1,
+                            "bbox": {"x": 0, "y": 0, "width": 100, "height": 100},
+                            "raster_key": "renders/job-raster-1/L02.png",
+                        }
+                    ],
+                },
+            )
+        )
+        await session.commit()
+
+    job_id = "33333333-3333-4333-8333-333333333333"
+    r = await client.get(f"/generate/{job_id}/raster/L02", params={"token": "token-a"})
+    assert r.status_code == 200
+    assert r.content == b"\x89PNG-fake"
+    r = await client.get(f"/generate/{job_id}/raster/L02", params={"token": "not-a-real-token"})
+    assert r.status_code == 401
+    r = await client.get(f"/generate/{job_id}/raster/L02", headers=AUTH_A)
+    assert r.status_code == 200  # the header alone, with no query token, still works
+
+
 async def test_list_jobs_scoped_to_agent(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

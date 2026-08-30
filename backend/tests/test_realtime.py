@@ -94,3 +94,15 @@ async def test_join_refuses_a_job_that_does_not_exist(fake_sio, db) -> None:  # 
     await realtime.connect("sid-1", {}, {"token": "token-a"})
     await realtime.join("sid-1", {"room": "no-such-job"})
     assert fake_sio.rooms.get("sid-1") is None
+
+
+async def test_join_normalises_room_case_like_the_rest_routes_do(
+    fake_sio, db
+) -> None:  # noqa: ANN001
+    """job_id is always stored lowercase (uuid.uuid4()); read_job/read_raster both
+    lower() the incoming id before the lookup and join() must match that convention,
+    not silently miss a room whose case doesn't happen to match."""
+    await _make_job(db, "job-1", requested_by="mac-m4")
+    await realtime.connect("sid-1", {}, {"token": "token-a"})
+    await realtime.join("sid-1", {"room": "JOB-1"})
+    assert fake_sio.rooms.get("sid-1") == {"job-1"}

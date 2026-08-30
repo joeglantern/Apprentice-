@@ -51,16 +51,15 @@ async def test_auth_required(client: AsyncClient) -> None:
     assert (await client.post("/ingest/asset", json=payload, headers=bad)).status_code == 401
 
 
-async def test_query_param_token_is_a_fallback_not_a_bypass(client: AsyncClient) -> None:
-    """The ?token= fallback exists only for contexts that can't set a header (an <img>
-    tag loading a raster) - it must accept a valid token there, but never let a bad
-    query token override a good header, or a bad header block a good query token."""
+async def test_query_param_token_is_not_accepted_outside_the_raster_route(
+    client: AsyncClient,
+) -> None:
+    """The ?token= fallback exists only for the raster route (an <img>/SVG href can't
+    set a header there) - every other route, including this one, must stay header-only
+    so an agent token never ends up in a URL, and so never in an access log, anywhere
+    else. See test_generate.py for the raster route's own fallback test."""
     r = await client.get("/ingest/assets", params={"token": "token-a"})
-    assert r.status_code == 200
-    r = await client.get("/ingest/assets", params={"token": "not-a-real-token"})
     assert r.status_code == 401
-    r = await client.get("/ingest/assets", headers=AUTH_A, params={"token": "not-a-real-token"})
-    assert r.status_code == 200  # good header wins even with a bad query token present
 
 
 async def test_validation_errors(client: AsyncClient) -> None:

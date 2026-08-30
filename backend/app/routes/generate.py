@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth import verify_agent_token
+from app.auth import verify_agent_token, verify_agent_token_or_query
 from app.db import get_session
 from app.models import Checkpoint, Job
 from app.queue import enqueue_generation
@@ -145,7 +145,7 @@ async def read_raster(
     job_id: JobId,
     layer_id: str,
     session: AsyncSession = Depends(get_session),
-    agent_id: str = Depends(verify_agent_token),
+    agent_id: str = Depends(verify_agent_token_or_query),
     storage: Storage = Depends(get_storage),
 ) -> Response:
     job = await session.get(Job, job_id.lower())

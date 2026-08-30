@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 import socketio
+from sqlmodel import select
 
 from app.auth import agent_for_token
 from app.config import get_settings
@@ -42,13 +43,16 @@ async def connect(sid: str, environ: dict[str, Any], auth: dict[str, Any] | None
 
 @sio.event
 async def join(sid: str, data: dict[str, Any]) -> None:
-    room = str(data.get("room", "")).strip()
+    room = str(data.get("room", "")).strip().lower()  # job_id is always stored lowercase
     if not room:
         return
     session = await sio.get_session(sid)
     async with session_factory()() as db:
-        job = await db.get(Job, room)
-    if job is not None and job.requested_by == session.get("agent_id"):
+        # Only the one column this check needs - a job's plan/result can be large
+        # JSON and every reconnect (Socket.IO auto-reconnects on its own) re-joins.
+        stmt = select(Job.requested_by).where(Job.job_id == room)
+        requested_by = (await db.exec(stmt)).first()
+    if requested_by is not None and requested_by == session.get("agent_id"):
         await sio.enter_room(sid, room)
 
 

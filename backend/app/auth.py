@@ -21,7 +21,32 @@ def agent_for_token(presented: str, settings: Settings) -> str | None:
     return None
 
 
+def _resolve(
+    credentials: HTTPAuthorizationCredentials | None, token: str | None, settings: Settings
+) -> str:
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        agent_id = agent_for_token(credentials.credentials, settings)
+        if agent_id is not None:
+            return agent_id
+    if token is not None:
+        agent_id = agent_for_token(token, settings)
+        if agent_id is not None:
+            return agent_id
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or invalid agent token")
+
+
 def verify_agent_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    settings: Settings = Depends(get_settings),
+) -> str:
+    """Header-only. Every route uses this except the one that genuinely can't set a
+    header - see verify_agent_token_or_query. Keeping this one header-only means the
+    token never ends up in a URL (and so never in an access log) for the ~14 routes
+    that don't need the query-param fallback."""
+    return _resolve(credentials, None, settings)
+
+
+def verify_agent_token_or_query(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     token: str | None = Query(
         default=None,
@@ -34,14 +59,7 @@ def verify_agent_token(
 ) -> str:
     """Returns the agent_id for a valid token, else 401. The header is checked first;
     the query param exists only because react-native-svg's Image href (and a plain
-    <img> tag) cannot carry an Authorization header - never rely on it over the header
-    when both are available, and never log a URL containing it."""
-    if credentials is not None and credentials.scheme.lower() == "bearer":
-        agent_id = agent_for_token(credentials.credentials, settings)
-        if agent_id is not None:
-            return agent_id
-    if token is not None:
-        agent_id = agent_for_token(token, settings)
-        if agent_id is not None:
-            return agent_id
-    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or invalid agent token")
+    <img> tag) cannot carry an Authorization header. Use this ONLY on a route that
+    genuinely needs it (currently just the raster route) - a token in a query string
+    ends up in access logs, so every other route should stay on verify_agent_token."""
+    return _resolve(credentials, token, settings)
