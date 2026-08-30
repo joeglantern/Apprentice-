@@ -174,6 +174,34 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
             "color": {"hex": scrim, "opacity": scrim_opacity},
         }
     )
+    # The layer schema has no gradients, so the scrim fades into the photo through a
+    # run of thin bands of falling opacity past its edge instead of a hard cut.
+    steps = 8
+    fade = int((width if landscape else height) * 0.14)
+    for i in range(steps):
+        opacity = round(scrim_opacity * (1 - (i + 1) / (steps + 1)), 3)
+        if landscape:
+            band = {
+                "x": zone["width"] + i * fade // steps,
+                "y": 0,
+                "width": -(-fade // steps),
+                "height": height,
+            }
+        else:
+            band = {
+                "x": 0,
+                "y": zone["y"] - (i + 1) * fade // steps,
+                "width": width,
+                "height": -(-fade // steps),
+            }
+        add(
+            {
+                "name": "scrim fade",
+                "type": "shape",
+                "bbox": band,
+                "color": {"hex": scrim, "opacity": opacity},
+            }
+        )
     # A light full-canvas tint unifies the photo with the palette.
     add(
         {
@@ -231,8 +259,10 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         if element.role in ("caption", "cta"):
             content = content.upper()
         chars_per_line = max(1, int(text_width / max(1, size * 0.52)))
-        max_lines = 3 if element.role == "headline" else 4
-        lines = max(1, min(max_lines, -(-len(content) // chars_per_line)))
+        max_lines = 3 if element.role == "headline" else 8
+        # Explicit newlines (the director writes details one per line) count as lines.
+        lines = sum(max(1, -(-len(p) // chars_per_line)) for p in content.split("\n"))
+        lines = max(1, min(max_lines, lines))
         line_height = 1.02 if element.role == "headline" else 1.3
         h = int(size * line_height * lines)
         w = text_width
