@@ -64,11 +64,11 @@ SCORE_PROMPT = (
     "Score this generated portrait 1-10 on face integrity: natural eyes, correct "
     "teeth, no warped features, no extra or fused fingers if hands are visible, no "
     "AI artefacts. Answer with only JSON: "
-    '{"score": n, "problems": ["short phrase", ...]}'
+    '{"score": n, "problems": []}' with problems listing actual defects like ''"extra fingers"'', empty when none.
 )
 
 
-def render(api_url: str, token: str, prompt: str, timeout: int = 1500) -> bytes | None:
+def render(api_url: str, token: str, prompt: str, timeout: int = 1500) -> tuple[str | None, bytes | None]:
     import httpx
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -88,14 +88,14 @@ def render(api_url: str, token: str, prompt: str, timeout: int = 1500) -> bytes 
         time.sleep(6)
     layers = (d.get("result") or {}).get("layers") or []
     if not layers or not layers[0].get("raster_key"):
-        return None
+        return job_id, None
     img = httpx.get(
         f"{api_url}/generate/{job_id}/raster/{layers[0]['layer_id']}",
         headers=headers,
         timeout=60,
     )
     img.raise_for_status()
-    return img.content
+    return job_id, img.content
 
 
 def score(image: bytes, ollama_url: str, model: str = "qwen2.5vl:3b") -> dict[str, Any]:
@@ -160,12 +160,12 @@ def main() -> int:
         return 2
     rows = []
     for name, prompt in MATRIX:
-        image = render(api_url, token, prompt)
+        job_id, image = render(api_url, token, prompt)
         if image is None:
-            rows.append({"name": name, "score": None, "problems": ["render failed"]})
+            rows.append({"name": name, "job_id": job_id, "score": None, "problems": ["render failed"]})
             continue
         verdict = score(image, args.ollama)
-        rows.append({"name": name, **verdict})
+        rows.append({"name": name, "job_id": job_id, **verdict})
         print(name, verdict.get("score"), verdict.get("problems"))
     report = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
