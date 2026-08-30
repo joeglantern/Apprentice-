@@ -482,3 +482,24 @@ a session whose client is gone - every new tunnel then fails its bind
 forever. The fix was killing the stale sshd session server-side; the lasting
 lesson is that the VPS sshd has no ClientAliveInterval, so dead remote-forward
 sessions never expire on their own.
+
+## D19 - RealVisXL adopted; brand kits; hand pass shipped (2026-08-31)
+
+A/B on the same tailoring-workshop portrait brief, full pipeline both sides:
+official base+refiner vs RealVisXL V5.0 fp16 with no refiner (community practice
+for fine-tunes). RealVisXL won clearly - skin with real photographic
+micro-texture instead of the airbrushed SDXL sheen, believable fabric, saner
+prompt adherence - and runs a simpler, lighter graph. Adopted as the production
+checkpoint (`SDXL_BASE_CHECKPOINT=RealVisXL_V5.0_fp16.safetensors`, refiner
+empty). The official checkpoints stay on the Legion's disk; rollback is one env
+flip. License: OpenRAIL++, read from the model card raw in D18.
+
+Brand kits shipped end to end: a request may carry `brand: {name, palette,
+typeface}`; the director treats it as binding across all three backends
+including the heuristic fallback, jobs store it (migration 0005), and the app
+grew a collapsible name/palette input. The hand-detail pass (hand_yolov8s,
+denoise 0.35) chains after the face pass and shipped in the same window.
+
+The v12 portrait set is the face-quality evidence: eight face-heavy briefs -
+laughing grandmother, barbershop, bride, runners, teacher, fisherman, dancers,
+DJ - all with clean teeth, eyes and hands through the detail passes.
