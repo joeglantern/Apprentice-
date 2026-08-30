@@ -125,3 +125,30 @@ https://ollama.com/install.sh | sh` on Linux, or the Mac/Windows installer),
 `ollama pull qwen2.5:7b-instruct`, then point `LOCAL_DIRECTOR_URL` at it
 from the VPS's `.env` over the same tunnel/Tailscale link used for
 `LEGION_INFERENCE_URL`.
+
+## D8 - Free render quality wins (2026-08-30)
+
+Once M4 was proven live end to end, the obvious next question was how to raise
+output quality without new data or a paid API. The honest ceiling: this
+project cannot and should not try to match frontier general-purpose image
+models (GPT Image, Imagen) - those are a different scale of compute entirely.
+The actual goal is narrower and those models cannot do it at all: this
+designer's own visual language. What's free and worth doing now:
+
+- **SDXL base+refiner two-stage pipeline** - the official way Stability AI
+  designed SDXL 1.0 to be used, not a hack. Base composes for the first
+  `SDXL_REFINER_SWITCH` fraction of steps (default 0.8), the refiner spends
+  the rest on fine detail. `sdxl_workflow` in `backend/app/inference.py`
+  builds the two-stage graph when `SDXL_REFINER_CHECKPOINT` is set, and
+  degrades to the original single-stage graph when it isn't - so this stays
+  working on a render machine that hasn't downloaded the refiner yet.
+- **A fuller negative prompt** - the standard community SDXL negative prompt
+  (`DEFAULT_NEGATIVE`) instead of four words, free, no extra model.
+- **Deliberately not done now**: swapping the base checkpoint for a stronger
+  community SDXL fine-tune (real quality lever, but couples the render
+  checkpoint to whatever base the eventual style LoRA is trained against -
+  revisit together once M3 actually trains); public layout dataset
+  pretraining for the layout VLM (real, but the infra cost isn't worth
+  paying before there is designer data to fine-tune on afterwards); a
+  designer feedback loop on generated output (valuable, but needs the app,
+  M5, to exist first).

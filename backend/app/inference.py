@@ -3,6 +3,12 @@
 The VPS has no GPU. Rendering happens on the Legion through ComfyUI's HTTP API over the
 tunnel, with a burst GPU endpoint speaking the same API as the fallback, and a null
 renderer when neither is reachable so a job still returns a vector-only result.
+
+The graph is the standard two-stage SDXL pipeline (docs/06 D8): base model composes,
+refiner model spends the last fraction of steps on fine detail, exactly how Stability AI
+designed SDXL 1.0 to be used. The refiner is optional - `sdxl_workflow` degrades to a
+single-stage graph when no refiner checkpoint is configured, so this keeps working on a
+Legion that hasn't downloaded it yet.
 """
 
 from __future__ import annotations
@@ -19,6 +25,14 @@ from app.config import Settings
 
 log = logging.getLogger(__name__)
 
+# Broader than "text, watermark" alone: the standard SDXL community negative prompt,
+# free quality win, no extra model or data needed.
+DEFAULT_NEGATIVE = (
+    "text, watermark, signature, lowres, low quality, jpeg artifacts, blurry, out of "
+    "focus, worst quality, extra limbs, deformed, disfigured, bad anatomy, cropped, "
+    "duplicate, ugly, oversaturated"
+)
+
 
 class Renderer(Protocol):
     name: str
@@ -34,16 +48,25 @@ class NullRenderer:
 
 
 def sdxl_workflow(
-    prompt: str, width: int, height: int, lora: str | None, seed: int, steps: int
+    prompt: str,
+    width: int,
+    height: int,
+    lora: str | None,
+    seed: int,
+    steps: int,
+    base_checkpoint: str,
+    refiner_checkpoint: str | None = None,
+    refiner_switch: float = 0.8,
+    negative: str = DEFAULT_NEGATIVE,
+    cfg: float = 6.5,
 ) -> dict[str, Any]:
-    """Minimal ComfyUI graph: SDXL base, optional LoRA, one image out."""
+    """Base-only graph when refiner_checkpoint is empty; base+refiner two-stage graph
+    otherwise. refiner_switch is the fraction of steps the base model runs before
+    handing the latent to the refiner for the remaining, detail-focused steps."""
     model_ref: list[Any] = ["4", 0]
     clip_ref: list[Any] = ["4", 1]
     graph: dict[str, Any] = {
-        "4": {
-            "class_type": "CheckpointLoaderSimple",
-            "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
-        },
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": base_checkpoint}},
         "5": {
             "class_type": "EmptyLatentImage",
             "inputs": {"width": width, "height": height, "batch_size": 1},
@@ -62,52 +85,112 @@ def sdxl_workflow(
         }
         model_ref, clip_ref = ["10", 0], ["10", 1]
         prompt = f"ghoststyle, {prompt}"
-    graph.update(
-        {
-            "6": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"text": prompt, "clip": clip_ref},
-            },
-            "7": {
-                "class_type": "CLIPTextEncode",
-                "inputs": {"text": "text, watermark, lowres, blurry", "clip": clip_ref},
-            },
-            "3": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "seed": seed,
-                    "steps": steps,
-                    "cfg": 6.0,
-                    "sampler_name": "dpmpp_2m",
-                    "scheduler": "karras",
-                    "denoise": 1.0,
-                    "model": model_ref,
-                    "positive": ["6", 0],
-                    "negative": ["7", 0],
-                    "latent_image": ["5", 0],
-                },
-            },
-            "8": {
-                "class_type": "VAEDecode",
-                "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
-            },
-            "9": {
-                "class_type": "SaveImage",
-                "inputs": {"filename_prefix": "ghost", "images": ["8", 0]},
+
+    graph["6"] = {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": clip_ref}}
+    graph["7"] = {"class_type": "CLIPTextEncode", "inputs": {"text": negative, "clip": clip_ref}}
+
+    if not refiner_checkpoint:
+        graph["3"] = {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": seed,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "dpmpp_2m",
+                "scheduler": "karras",
+                "denoise": 1.0,
+                "model": model_ref,
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "latent_image": ["5", 0],
             },
         }
-    )
+        graph["8"] = {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}}
+        graph["9"] = {
+            "class_type": "SaveImage",
+            "inputs": {"filename_prefix": "ghost", "images": ["8", 0]},
+        }
+        return graph
+
+    switch_step = max(1, min(steps - 1, round(steps * refiner_switch)))
+    graph["20"] = {
+        "class_type": "CheckpointLoaderSimple",
+        "inputs": {"ckpt_name": refiner_checkpoint},
+    }
+    graph["21"] = {
+        "class_type": "CLIPTextEncode",
+        "inputs": {"text": prompt, "clip": ["20", 1]},
+    }
+    graph["22"] = {
+        "class_type": "CLIPTextEncode",
+        "inputs": {"text": negative, "clip": ["20", 1]},
+    }
+    # Base composes steps [0, switch_step), leaves noise for the refiner to continue from.
+    graph["3"] = {
+        "class_type": "KSamplerAdvanced",
+        "inputs": {
+            "add_noise": "enable",
+            "noise_seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": "dpmpp_2m",
+            "scheduler": "karras",
+            "start_at_step": 0,
+            "end_at_step": switch_step,
+            "return_with_leftover_noise": "enable",
+            "model": model_ref,
+            "positive": ["6", 0],
+            "negative": ["7", 0],
+            "latent_image": ["5", 0],
+        },
+    }
+    # Refiner finishes steps [switch_step, steps) - the fine-detail pass.
+    graph["23"] = {
+        "class_type": "KSamplerAdvanced",
+        "inputs": {
+            "add_noise": "disable",
+            "noise_seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": "dpmpp_2m",
+            "scheduler": "karras",
+            "start_at_step": switch_step,
+            "end_at_step": 10000,
+            "return_with_leftover_noise": "disable",
+            "model": ["20", 0],
+            "positive": ["21", 0],
+            "negative": ["22", 0],
+            "latent_image": ["3", 0],
+        },
+    }
+    graph["8"] = {"class_type": "VAEDecode", "inputs": {"samples": ["23", 0], "vae": ["20", 2]}}
+    graph["9"] = {
+        "class_type": "SaveImage",
+        "inputs": {"filename_prefix": "ghost", "images": ["8", 0]},
+    }
     return graph
 
 
 class ComfyRenderer:
     """Talks to a ComfyUI instance. Same code serves the Legion and a burst GPU box."""
 
-    def __init__(self, base_url: str, name: str, timeout: float, steps: int = 28) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        name: str,
+        timeout: float,
+        steps: int = 30,
+        base_checkpoint: str = "sd_xl_base_1.0.safetensors",
+        refiner_checkpoint: str = "",
+        refiner_switch: float = 0.8,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.name = name
         self.timeout = timeout
         self.steps = steps
+        self.base_checkpoint = base_checkpoint
+        self.refiner_checkpoint = refiner_checkpoint or None
+        self.refiner_switch = refiner_switch
 
     def reachable(self) -> bool:
         try:
@@ -127,7 +210,17 @@ class ComfyRenderer:
 
     def _render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None:
         client_id = uuid.uuid4().hex
-        graph = sdxl_workflow(prompt, width, height, lora, seed=int(time.time()), steps=self.steps)
+        graph = sdxl_workflow(
+            prompt,
+            width,
+            height,
+            lora,
+            seed=int(time.time()),
+            steps=self.steps,
+            base_checkpoint=self.base_checkpoint,
+            refiner_checkpoint=self.refiner_checkpoint,
+            refiner_switch=self.refiner_switch,
+        )
         with httpx.Client(base_url=self.base_url, timeout=30.0) as client:
             r = client.post("/prompt", json={"prompt": graph, "client_id": client_id})
             r.raise_for_status()
@@ -168,7 +261,15 @@ def pick_renderer(settings: Settings) -> Renderer:
     for url, name in candidates:
         if not url:
             continue
-        renderer = ComfyRenderer(url, name, settings.inference_timeout_s)
+        renderer = ComfyRenderer(
+            url,
+            name,
+            settings.inference_timeout_s,
+            steps=settings.sdxl_steps,
+            base_checkpoint=settings.sdxl_base_checkpoint,
+            refiner_checkpoint=settings.sdxl_refiner_checkpoint,
+            refiner_switch=settings.sdxl_refiner_switch,
+        )
         if renderer.reachable():
             return renderer
         log.warning("renderer %s at %s is not reachable", name, url)

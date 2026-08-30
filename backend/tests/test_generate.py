@@ -55,13 +55,69 @@ def test_layout_portrait_puts_image_on_top() -> None:
     assert image["bbox"]["y"] < headline["bbox"]["y"]
 
 
+BASE_CKPT = "sd_xl_base_1.0.safetensors"
+
+
 def test_sdxl_workflow_wires_lora() -> None:
-    graph = sdxl_workflow("a poster", 1024, 576, "style-lora-v1.safetensors", seed=1, steps=20)
+    graph = sdxl_workflow(
+        "a poster",
+        1024,
+        576,
+        "style-lora-v1.safetensors",
+        seed=1,
+        steps=20,
+        base_checkpoint=BASE_CKPT,
+    )
     assert graph["10"]["inputs"]["lora_name"] == "style-lora-v1.safetensors"
     assert graph["3"]["inputs"]["model"] == ["10", 0]
     assert graph["6"]["inputs"]["text"].startswith("ghoststyle, ")
-    plain = sdxl_workflow("a poster", 1024, 576, None, seed=1, steps=20)
+    plain = sdxl_workflow("a poster", 1024, 576, None, seed=1, steps=20, base_checkpoint=BASE_CKPT)
     assert "10" not in plain and plain["3"]["inputs"]["model"] == ["4", 0]
+    assert plain["3"]["class_type"] == "KSampler"  # single-stage when no refiner configured
+    assert "worst quality" in plain["7"]["inputs"]["text"]  # default negative prompt
+
+
+def test_sdxl_workflow_two_stage_refiner() -> None:
+    graph = sdxl_workflow(
+        "a poster",
+        1024,
+        576,
+        None,
+        seed=1,
+        steps=30,
+        base_checkpoint=BASE_CKPT,
+        refiner_checkpoint="sd_xl_refiner_1.0.safetensors",
+        refiner_switch=0.8,
+    )
+    assert graph["4"]["inputs"]["ckpt_name"] == BASE_CKPT
+    assert graph["20"]["inputs"]["ckpt_name"] == "sd_xl_refiner_1.0.safetensors"
+    base_stage = graph["3"]
+    assert base_stage["class_type"] == "KSamplerAdvanced"
+    assert base_stage["inputs"]["start_at_step"] == 0
+    assert base_stage["inputs"]["end_at_step"] == 24  # 30 * 0.8
+    assert base_stage["inputs"]["return_with_leftover_noise"] == "enable"
+    refiner_stage = graph["23"]
+    assert refiner_stage["inputs"]["add_noise"] == "disable"
+    assert refiner_stage["inputs"]["start_at_step"] == 24
+    assert refiner_stage["inputs"]["model"] == ["20", 0]
+    assert refiner_stage["inputs"]["latent_image"] == ["3", 0]
+    assert graph["8"]["inputs"]["samples"] == ["23", 0]
+    assert graph["8"]["inputs"]["vae"] == ["20", 2]
+
+
+def test_sdxl_workflow_refiner_switch_is_clamped() -> None:
+    graph = sdxl_workflow(
+        "x",
+        512,
+        512,
+        None,
+        seed=1,
+        steps=5,
+        base_checkpoint=BASE_CKPT,
+        refiner_checkpoint="r.safetensors",
+        refiner_switch=0.0,
+    )
+    assert graph["3"]["inputs"]["end_at_step"] == 1  # never 0, base always does at least one step
 
 
 def test_comfy_render_degrades_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:

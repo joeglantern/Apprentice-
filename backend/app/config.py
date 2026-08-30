@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     burst_inference_url: str = ""
     inference_timeout_s: float = 240.0
 
+    # SDXL render quality (docs/06 D8) - free wins, no extra data needed. Base+refiner is
+    # the official two-stage SDXL 1.0 pipeline; leave sdxl_refiner_checkpoint empty to
+    # fall back to a single-stage render if the refiner isn't downloaded yet.
+    sdxl_steps: int = 30
+    sdxl_base_checkpoint: str = "sd_xl_base_1.0.safetensors"
+    sdxl_refiner_checkpoint: str = ""
+    sdxl_refiner_switch: float = 0.8
+
     def agent_token_map(self) -> dict[str, str]:
         """token -> agent_id"""
         out: dict[str, str] = {}

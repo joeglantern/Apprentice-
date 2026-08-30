@@ -1,0 +1,51 @@
+{
+  "plan": {
+    "rationale": "For this summer jazz festival poster, the canvas will be filled with a vibrant yet not overwhelming design that captures the essence of a Friday night in the park. The title will be bold and attention-grabbing, with a clean, modern typeface. The image will feature a silhouette of a saxophonist playing under the stars, evoking the joy and energy of a live performance. The background will be a gradient of blues and purples, fading into a warm, golden hue to represent the summer evening transitioning into night. The text will be concise, focusing on key information and using a legible sans-serif font for readability.",
+    "canvas": {
+      "width": 1600,
+      "height": 900
+    },
+    "mood": [
+      "Vibrant",
+      "Modern",
+      "Summer",
+      "Evening"
+    ],
+    "palette_intent": [
+      "A gradient of blues and purples fading into a warm, golden hue",
+      "Bright, clean white text for contrast"
+    ],
+    "elements": [
+      {
+        "role": "headline",
+        "content": "JAZZ ON THE GREEN",
+        "priority": 1,
+        "image_prompt": "A bold, clean typeface with the words 'JAZZ ON THE GREEN' in bright, clean white against a gradient background",
+        "notes": "High contrast and visibility are key to drawing attention"
+      },
+      {
+        "role": "image",
+        "content": "A silhouette of a saxophonist playing under the stars in a park setting",
+        "priority": 2,
+        "image_prompt": "A silhouette of a saxophonist playing a jazz saxophone under a starry sky in a park, with people enjoying the night around them",
+        "notes": ""
+      },
+      {
+        "role": "subhead",
+        "content": "FRIDAY NIGHT, DOWNTOWN PARK",
+        "priority": 3,
+        "image_prompt": "A clean, sans-serif font with the words 'FRIDAY NIGHT, DOWNTOWN PARK' in a lighter white against the gradient background",
+        "notes": ""
+      },
+      {
+        "role": "body",
+        "content": "Join us for an unforgettable night of live jazz in the heart of the city. Food, drinks, and music under the stars.",
+        "priority": 4,
+        "image_prompt": "A clean, sans-serif font with the event description in a lighter white against the gradient background",
+        "notes": ""
+      }
+    ],
+    "source": "director"
+  },
+  "image_prompt": "A silhouette of a saxophonist playing a jazz saxophone under a starry sky in a park, with people enjoying the night around them"
+}
