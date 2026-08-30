@@ -172,6 +172,43 @@ def face_detail_nodes(
     graph["9"]["inputs"]["images"] = ["41", 0]
 
 
+def hand_detail_nodes(
+    graph: dict[str, Any],
+    *,
+    seed: int,
+    denoise: float,
+    model: list[Any],
+    clip: list[Any],
+    positive: list[Any],
+    negative: list[Any],
+) -> None:
+    """Hands, same mechanism as faces (docs/06 D18): hand_yolov8s finds each hand and
+    FaceDetailer - the node is a generic bbox detailer despite its name - re-renders
+    it. Runs after the face pass when both are on, taking whatever image currently
+    feeds SaveImage so the passes chain."""
+    graph["42"] = {
+        "class_type": "UltralyticsDetectorProvider",
+        "inputs": {"model_name": "bbox/hand_yolov8s.pt"},
+    }
+    inputs = dict(graph["41"]["inputs"]) if "41" in graph else None
+    if inputs is None:
+        raise ValueError("hand pass requires the face pass graph as its template")
+    inputs.update(
+        {
+            "image": graph["9"]["inputs"]["images"],
+            "seed": seed,
+            "denoise": denoise,
+            "bbox_detector": ["42", 0],
+            "model": model,
+            "clip": clip,
+            "positive": positive,
+            "negative": negative,
+        }
+    )
+    graph["43"] = {"class_type": "FaceDetailer", "inputs": inputs}
+    graph["9"]["inputs"]["images"] = ["43", 0]
+
+
 def scene_text_prompt(prompt: str, scene_text: str) -> str:
     """Flux reads quoted text literally; everything else about the sign is left to the
     scene description so it looks like it belongs there."""
@@ -195,6 +232,8 @@ def sdxl_workflow(
     hires_steps: int = 12,
     face_detail: bool = False,
     face_detail_denoise: float = 0.45,
+    hand_detail: bool = False,
+    hand_detail_denoise: float = 0.35,
 ) -> dict[str, Any]:
     """Base-only graph when refiner_checkpoint is empty; base+refiner two-stage graph
     otherwise. refiner_switch is the fraction of steps the base model runs before
@@ -333,12 +372,22 @@ def sdxl_workflow(
         "class_type": "SaveImage",
         "inputs": {"filename_prefix": "ghost", "images": ["8", 0]},
     }
+    final_clip = ["20", 1] if refiner_checkpoint else clip_ref
     if face_detail:
-        final_clip = ["20", 1] if refiner_checkpoint else clip_ref
         face_detail_nodes(
             graph,
             seed=seed,
             denoise=face_detail_denoise,
+            model=final_model,
+            clip=final_clip,
+            positive=final_positive,
+            negative=final_negative,
+        )
+    if face_detail and hand_detail:
+        hand_detail_nodes(
+            graph,
+            seed=seed,
+            denoise=hand_detail_denoise,
             model=final_model,
             clip=final_clip,
             positive=final_positive,
@@ -365,9 +414,13 @@ class ComfyRenderer:
         flux: dict[str, Any] | None = None,
         face_detail: bool = False,
         face_detail_denoise: float = 0.45,
+        hand_detail: bool = False,
+        hand_detail_denoise: float = 0.35,
     ) -> None:
         self.face_detail = face_detail
         self.face_detail_denoise = face_detail_denoise
+        self.hand_detail = hand_detail
+        self.hand_detail_denoise = hand_detail_denoise
         self.flux = flux  # {"unet", "t5", "clip_l", "vae", "steps"} or None when not installed
         self.base_url = base_url.rstrip("/")
         self.name = name
@@ -437,6 +490,8 @@ class ComfyRenderer:
                 hires_steps=self.hires_steps,
                 face_detail=self.face_detail,
                 face_detail_denoise=self.face_detail_denoise,
+                hand_detail=self.hand_detail,
+                hand_detail_denoise=self.hand_detail_denoise,
             )
         with httpx.Client(base_url=self.base_url, timeout=30.0) as client:
             r = client.post("/prompt", json={"prompt": graph, "client_id": client_id})
@@ -491,6 +546,8 @@ def pick_renderer(settings: Settings) -> Renderer:
             hires_steps=settings.sdxl_hires_steps,
             face_detail=settings.face_detail,
             face_detail_denoise=settings.face_detail_denoise,
+            hand_detail=settings.hand_detail,
+            hand_detail_denoise=settings.hand_detail_denoise,
             flux=(
                 {
                     "unet": settings.flux_unet,

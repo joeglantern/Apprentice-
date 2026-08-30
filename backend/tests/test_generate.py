@@ -750,3 +750,30 @@ def test_face_detail_pass_appends_to_the_sdxl_graph() -> None:
 
     off = sdxl_workflow("a portrait", 832, 1216, None, seed=7, steps=20, base_checkpoint=BASE_CKPT)
     assert "40" not in off and "41" not in off and off["9"]["inputs"]["images"] == ["8", 0]
+
+
+def test_hand_detail_chains_after_the_face_pass() -> None:
+    graph = sdxl_workflow(
+        "a portrait",
+        832,
+        1216,
+        None,
+        seed=7,
+        steps=30,
+        base_checkpoint=BASE_CKPT,
+        refiner_checkpoint="sd_xl_refiner_1.0.safetensors",
+        face_detail=True,
+        hand_detail=True,
+        hand_detail_denoise=0.3,
+    )
+    assert graph["42"]["inputs"]["model_name"] == "bbox/hand_yolov8s.pt"
+    hd = graph["43"]["inputs"]
+    # Chained: hands refine the face pass's output, and SaveImage takes the hand pass.
+    assert hd["image"] == ["41", 0] and graph["9"]["inputs"]["images"] == ["43", 0]
+    assert hd["denoise"] == 0.3 and hd["bbox_detector"] == ["42", 0]
+    assert hd["model"] == ["20", 0] and hd["clip"] == ["20", 1]
+    # Face-only leaves no hand nodes; hands alone (without faces) are not wired.
+    face_only = sdxl_workflow(
+        "x", 512, 512, None, seed=1, steps=20, base_checkpoint=BASE_CKPT, face_detail=True
+    )
+    assert "42" not in face_only and face_only["9"]["inputs"]["images"] == ["41", 0]
