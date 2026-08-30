@@ -192,3 +192,17 @@ config or firewall for other tenants' sake.
 
 Env vars set from this: `LOCAL_DIRECTOR_URL=http://172.21.0.1:18434`,
 `LEGION_INFERENCE_URL=http://172.21.0.1:18188` in the VPS's `backend/.env`.
+
+## D10 - Refiner confirmed live, cu130 note (2026-08-30)
+
+Base+refiner (D8) tested for real through the full VPS -> tunnel -> Legion path,
+not just unit tests. Base stage 24 steps (~11s), refiner stage 6 steps (~3s),
+total 36s (vs ~18s base-only) - the extra time is mostly the second checkpoint
+load, not the refiner steps themselves. VRAM held 5.13GB free after the run
+(7.37GB idle) on the 8GB card with --lowvram, no OOM. Visibly sharper output
+than base-only on the same prompt.
+
+ComfyUI logs a warning that cu130 (not cu128) would enable optimized CUDA ops
+for this Blackwell card. Noted for a future pass, not applied now - the
+Legion's disk is tight (24GB free after the refiner download) and this isn't
+blocking anything.
