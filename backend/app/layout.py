@@ -32,7 +32,13 @@ def _srgb_to_linear(c: float) -> float:
 
 
 def _relative_luminance(hex_colour: str) -> float:
-    r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    """DesignPlan validates palette_intent is #RRGGBB, but this stays defensive - a
+    malformed colour must never crash the whole render, only degrade the contrast
+    guess (treated as mid-grey rather than raising)."""
+    try:
+        r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    except (ValueError, IndexError):
+        return 0.5
     r, g, b = _srgb_to_linear(r), _srgb_to_linear(g), _srgb_to_linear(b)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 

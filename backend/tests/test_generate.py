@@ -276,3 +276,26 @@ def test_design_plan_requires_an_image_element() -> None:
             elements=[PlanElement(role="headline", content="Hi", priority=1)],
         )
     assert isinstance(io.BytesIO(b""), io.BytesIO)
+
+
+def test_design_plan_rejects_malformed_hex_in_palette() -> None:
+    """Regression: a real local-model response once put a non-hex string into
+    palette_intent, which used to sail through validation and crash later, deep
+    inside the layout engine's contrast maths, instead of triggering the fallback."""
+    with pytest.raises(Exception, match="palette_intent"):
+        DesignPlan(
+            rationale="r",
+            canvas={"width": 10, "height": 10},
+            mood=["a"],
+            palette_intent=["#Bright Orange"],
+            elements=[PlanElement(role="image", content="a picture", priority=1)],
+        )
+
+
+def test_layout_never_crashes_on_a_malformed_hex_defensively() -> None:
+    """Belt-and-suspenders: even if a DesignPlan is ever built bypassing the schema
+    validator, heuristic_layout must degrade gracefully, not raise."""
+    from app.layout import _relative_luminance
+
+    assert _relative_luminance("#zz1234") == 0.5
+    assert _relative_luminance("#fff") == 0.5

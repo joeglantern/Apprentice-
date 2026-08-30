@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.config import Settings
 
@@ -41,6 +42,9 @@ class PlanElement(BaseModel):
     notes: str = Field(default="", description="Placement or treatment guidance in one line")
 
 
+_HEX_COLOUR = re.compile(r"#[0-9A-Fa-f]{6}")
+
+
 class DesignPlan(BaseModel):
     rationale: str = Field(description="Two to four sentences on the thinking behind the plan")
     canvas: dict[str, int] = Field(description="width and height in pixels")
@@ -48,6 +52,17 @@ class DesignPlan(BaseModel):
     palette_intent: list[str] = Field(description="Hex colours to lean on, from the profile")
     elements: list[PlanElement]
     source: Literal["director", "heuristic"] = "director"
+
+    @field_validator("palette_intent")
+    @classmethod
+    def _valid_hex(cls, value: list[str]) -> list[str]:
+        """A local model occasionally emits a colour name or a malformed string instead
+        of #RRGGBB. Reject here, at the schema boundary, rather than crash deep inside
+        the layout engine's contrast maths on the first bad entry it touches."""
+        for item in value:
+            if not _HEX_COLOUR.fullmatch(item):
+                raise ValueError(f"palette_intent entry is not #RRGGBB: {item!r}")
+        return [v.upper() for v in value]
 
     @model_validator(mode="after")
     def _has_a_visual(self) -> DesignPlan:
