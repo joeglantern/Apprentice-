@@ -47,6 +47,10 @@ exclude = ["alembic/versions"]
 select = ["E", "F", "I", "UP", "B", "ANN"]
 ignore = ["ANN401", "B008"]
 
+[tool.ruff.lint.per-file-ignores]
+# The director's few-shot example plans are JSON lines inside a prompt string.
+"app/director.py" = ["E501"]
+
 [tool.black]
 line-length = 100
 target-version = ["py311", "py312", "py313"]

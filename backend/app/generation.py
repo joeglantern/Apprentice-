@@ -62,7 +62,9 @@ def run_generation(
     for i, layer in enumerate(image_layers, 1):
         bbox = layer["bbox"]
         w, h = _sdxl_size(bbox["width"], bbox["height"])
-        data = renderer.render(layer.get("image_prompt", prompt), w, h, lora_file)
+        data = renderer.render(
+            layer.get("image_prompt", prompt), w, h, lora_file, layer.get("scene_text")
+        )
         if data:
             key = f"renders/{job_id}/{layer['layer_id']}.png"
             storage.put(key, data, "image/png")

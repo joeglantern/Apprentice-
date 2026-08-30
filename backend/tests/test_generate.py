@@ -226,6 +226,64 @@ def test_sdxl_workflow_refiner_switch_is_clamped() -> None:
     assert graph["3"]["inputs"]["end_at_step"] == 1  # never 0, base always does at least one step
 
 
+def test_flux_workflow_is_a_four_step_cfg_one_gguf_graph() -> None:
+    from app.inference import flux_workflow, scene_text_prompt
+
+    graph = flux_workflow(
+        scene_text_prompt("a butchery storefront", "Mama Njeri"),
+        832,
+        1216,
+        seed=1,
+        steps=4,
+        unet="flux1-schnell-Q4_K_S.gguf",
+        t5="t5.gguf",
+        clip_l="clip_l.safetensors",
+        vae="ae.safetensors",
+    )
+    assert graph["1"]["class_type"] == "UnetLoaderGGUF"
+    assert graph["2"]["inputs"]["type"] == "flux"
+    assert graph["7"]["inputs"]["cfg"] == 1.0 and graph["7"]["inputs"]["steps"] == 4
+    assert '"Mama Njeri"' in graph["4"]["inputs"]["text"]
+
+
+def test_scene_text_routes_that_layer_to_flux(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.inference import ComfyRenderer
+
+    seen: list[dict[str, Any]] = []
+
+    def fake_post(self: Any, url: str, json: dict[str, Any]) -> Any:  # noqa: ANN401
+        seen.append(json["prompt"])
+        raise ValueError("stop here")
+
+    import httpx
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    flux = {"unet": "u.gguf", "t5": "t.gguf", "clip_l": "c", "vae": "v", "steps": 4}
+    renderer = ComfyRenderer("http://legion:8188", "legion", timeout=1.0, flux=flux)
+    renderer.render("a shop", 512, 512, None, scene_text="OPEN")
+    renderer.render("a shop", 512, 512, None, scene_text=None)
+    assert seen[0]["1"]["class_type"] == "UnetLoaderGGUF"
+    assert seen[1]["4"]["class_type"] == "CheckpointLoaderSimple"
+    # Without Flux installed a scene_text layer still renders, through SDXL.
+    plain = ComfyRenderer("http://legion:8188", "legion", timeout=1.0)
+    plain.render("a shop", 512, 512, None, scene_text="OPEN")
+    assert seen[2]["4"]["class_type"] == "CheckpointLoaderSimple"
+
+
+def test_layout_honours_typeface_and_scene_text() -> None:
+    plan = heuristic_plan("Concert", 1080, 1350, None)
+    plan.typeface = "bebas"
+    plan.elements[0].scene_text = "Sauti Sol"
+    layout = heuristic_layout(plan, None)
+    image = next(layer for layer in layout["layers"] if layer["type"] == "image")
+    assert image["scene_text"] == "Sauti Sol" and "no text" not in image["image_prompt"]
+    headline = next(layer for layer in layout["layers"] if layer["name"] == "headline")
+    assert headline["typography"]["font_family"] == "Bebas Neue"
+    assert headline["text"] == headline["text"].upper()
+    body = next(layer for layer in layout["layers"] if layer["name"] == "subhead")
+    assert body["typography"]["font_family"] == "Inter"
+
+
 def test_comfy_render_degrades_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A ComfyUI/network failure must not raise out of render() - the caller falls back
     to a flat colour block rather than failing the whole job."""
@@ -247,7 +305,14 @@ class FakeRenderer:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int, int, str | None]] = []
 
-    def render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None:
+    def render(
+        self,
+        prompt: str,
+        width: int,
+        height: int,
+        lora: str | None,
+        scene_text: str | None = None,
+    ) -> bytes | None:
         self.calls.append((prompt, width, height, lora))
         return b"\x89PNG-fake"
 

@@ -25,6 +25,25 @@ IMAGE_PROMPT_SUFFIX = (
     "uncluttered negative space, no text, no letters, no logos, no watermark"
 )
 
+# Director typeface -> families the app bundles (app/assets/fonts, all OFL). Bebas is a
+# condensed uppercase display face with one weight, so its headline scale runs larger.
+FONT_PAIRINGS: dict[str, dict[str, Any]] = {
+    "inter": {"display": "Inter", "body": "Inter", "display_weight": 800, "uppercase": False},
+    "bebas": {"display": "Bebas Neue", "body": "Inter", "display_weight": 400, "uppercase": True},
+    "playfair": {
+        "display": "Playfair Display",
+        "body": "Inter",
+        "display_weight": 700,
+        "uppercase": False,
+    },
+    "grotesk": {
+        "display": "Space Grotesk",
+        "body": "Space Grotesk",
+        "display_weight": 700,
+        "uppercase": False,
+    },
+}
+
 # Poster headlines are big. A designer profile can push this up, never below the floor.
 HEADLINE_RATIO_FLOOR = 0.075
 HEADLINE_RATIO_DEFAULT = 0.085
@@ -142,14 +161,20 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     if images:
         image = images[0]
         base_prompt = (image.image_prompt or image.content).strip().rstrip(",. ")
-        add(
-            {
-                "name": image.content,
-                "type": "image",
-                "bbox": {"x": 0, "y": 0, "width": width, "height": height},
-                "image_prompt": f"{base_prompt}, {IMAGE_PROMPT_SUFFIX}",
-            }
-        )
+        layer = {
+            "name": image.content,
+            "type": "image",
+            "bbox": {"x": 0, "y": 0, "width": width, "height": height},
+            "image_prompt": f"{base_prompt}, {IMAGE_PROMPT_SUFFIX}",
+        }
+        if image.scene_text:
+            # Words inside the photo are the one case the "no text" suffix must not
+            # apply to; the renderer switches to Flux for this layer (inference.py).
+            layer["image_prompt"] = (
+                f"{base_prompt}, poster background photograph, cinematic lighting"
+            )
+            layer["scene_text"] = image.scene_text.strip()[:40]
+        add(layer)
     else:
         add(
             {
@@ -180,20 +205,12 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     fade = int((width if landscape else height) * 0.14)
     for i in range(steps):
         opacity = round(scrim_opacity * (1 - (i + 1) / (steps + 1)), 3)
+        # Bands overlap by a pixel so rounding never leaves a hairline seam between them.
+        step = -(-fade // steps) + 1
         if landscape:
-            band = {
-                "x": zone["width"] + i * fade // steps,
-                "y": 0,
-                "width": -(-fade // steps),
-                "height": height,
-            }
+            band = {"x": zone["width"] + i * (step - 1), "y": 0, "width": step, "height": height}
         else:
-            band = {
-                "x": 0,
-                "y": zone["y"] - (i + 1) * fade // steps,
-                "width": width,
-                "height": -(-fade // steps),
-            }
+            band = {"x": 0, "y": zone["y"] - (i + 1) * (step - 1), "width": width, "height": step}
         add(
             {
                 "name": "scrim fade",
@@ -215,7 +232,15 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     text_left = zone["x"] + margin
     text_width = zone["width"] - 2 * margin
     zone_bottom = zone["y"] + zone["height"] - margin
-    font_family = _dominant(profile, "fonts", "Helvetica Neue")
+    # The designer's own dominant font wins once there is a profile; otherwise the
+    # director's pairing from the bundled OFL set (app/assets/fonts).
+    pairing = FONT_PAIRINGS.get(plan.typeface, FONT_PAIRINGS["inter"])
+    profile_font = _dominant(profile, "fonts", "")
+    display_family = profile_font or pairing["display"]
+    body_family = profile_font or pairing["body"]
+    display_weight = pairing["display_weight"]
+    headline_upper = pairing["uppercase"]
+    font_family = body_family
 
     def x_for(w: int) -> int:
         if align == "center":
@@ -258,6 +283,8 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         content = element.content.strip()
         if element.role in ("caption", "cta"):
             content = content.upper()
+        if element.role == "headline" and headline_upper:
+            content = content.upper()
         chars_per_line = max(1, int(text_width / max(1, size * 0.52)))
         max_lines = 3 if element.role == "headline" else 8
         # Explicit newlines (the director writes details one per line) count as lines.
@@ -272,9 +299,11 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
             "text": content,
             "align": align,
             "typography": {
-                "font_family": font_family,
+                "font_family": display_family if element.role == "headline" else font_family,
                 "font_size": size,
-                "font_weight": {"headline": 800, "cta": 700, "caption": 600}.get(element.role, 400),
+                "font_weight": {"headline": display_weight, "cta": 700, "caption": 600}.get(
+                    element.role, 400
+                ),
                 "line_height": line_height,
             },
             "color": {"hex": accent if element.role == "caption" else fg, "opacity": 1.0},

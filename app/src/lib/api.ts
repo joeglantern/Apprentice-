@@ -35,8 +35,8 @@ async function unwrap<T>(res: Response): Promise<T> {
 export async function generate(
   prompt: string,
   aestheticVersion: string,
-  width = 1600,
-  height = 900,
+  width = 1080,
+  height = 1350,
 ): Promise<GenerateAccepted> {
   const res = await fetch(`${BASE_URL}/generate`, {
     method: "POST",

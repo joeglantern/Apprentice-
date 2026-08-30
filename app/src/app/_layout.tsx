@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, View } from "react-native";
@@ -6,6 +7,16 @@ import { StyleSheet, View } from "react-native";
 const queryClient = new QueryClient();
 
 export default function RootLayout() {
+  // The bundled OFL faces layout.py can ask for by family name (backend
+  // FONT_PAIRINGS). Rendering proceeds either way; SVG text falls back to the
+  // system face until these resolve, then re-renders.
+  useFonts({
+    Inter: require("../../assets/fonts/Inter[opsz,wght].ttf"),
+    "Bebas Neue": require("../../assets/fonts/BebasNeue-Regular.ttf"),
+    "Playfair Display": require("../../assets/fonts/PlayfairDisplay[wght].ttf"),
+    "Space Grotesk": require("../../assets/fonts/SpaceGrotesk[wght].ttf"),
+  });
+
   return (
     <QueryClientProvider client={queryClient}>
       <View style={styles.root}>

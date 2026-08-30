@@ -40,14 +40,84 @@ DEFAULT_NEGATIVE = (
 class Renderer(Protocol):
     name: str
 
-    def render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None: ...
+    def render(
+        self,
+        prompt: str,
+        width: int,
+        height: int,
+        lora: str | None,
+        scene_text: str | None = None,
+    ) -> bytes | None: ...
 
 
 class NullRenderer:
     name = "none"
 
-    def render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None:
+    def render(
+        self,
+        prompt: str,
+        width: int,
+        height: int,
+        lora: str | None,
+        scene_text: str | None = None,
+    ) -> bytes | None:
         return None
+
+
+def flux_workflow(
+    prompt: str,
+    width: int,
+    height: int,
+    seed: int,
+    steps: int,
+    unet: str,
+    t5: str,
+    clip_l: str,
+    vae: str,
+) -> dict[str, Any]:
+    """FLUX.1-schnell through the ComfyUI-GGUF loaders: 4 steps, cfg 1, no negative
+    prompt (schnell is distilled and ignores guidance). Used for the one case SDXL
+    cannot do - legible words inside the photograph."""
+    return {
+        "1": {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": unet}},
+        "2": {
+            "class_type": "DualCLIPLoaderGGUF",
+            "inputs": {"clip_name1": t5, "clip_name2": clip_l, "type": "flux"},
+        },
+        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}},
+        "4": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["2", 0]}},
+        "5": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["2", 0]}},
+        "6": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {"width": width, "height": height, "batch_size": 1},
+        },
+        "7": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": seed,
+                "steps": steps,
+                "cfg": 1.0,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+                "model": ["1", 0],
+                "positive": ["4", 0],
+                "negative": ["5", 0],
+                "latent_image": ["6", 0],
+            },
+        },
+        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["3", 0]}},
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {"filename_prefix": "ghost-flux", "images": ["8", 0]},
+        },
+    }
+
+
+def scene_text_prompt(prompt: str, scene_text: str) -> str:
+    """Flux reads quoted text literally; everything else about the sign is left to the
+    scene description so it looks like it belongs there."""
+    return f'{prompt}, with a sign that reads "{scene_text.strip()}" in clear bold lettering'
 
 
 def sdxl_workflow(
@@ -221,7 +291,9 @@ class ComfyRenderer:
         hires_scale: float = 1.0,
         hires_denoise: float = 0.4,
         hires_steps: int = 12,
+        flux: dict[str, Any] | None = None,
     ) -> None:
+        self.flux = flux  # {"unet", "t5", "clip_l", "vae", "steps"} or None when not installed
         self.base_url = base_url.rstrip("/")
         self.name = name
         self.timeout = timeout
@@ -240,31 +312,55 @@ class ComfyRenderer:
         except httpx.HTTPError:
             return False
 
-    def render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None:
+    def render(
+        self,
+        prompt: str,
+        width: int,
+        height: int,
+        lora: str | None,
+        scene_text: str | None = None,
+    ) -> bytes | None:
         """Never raises: any failure (unreachable, bad graph, timeout) degrades to None so
-        the caller falls back to a flat colour block instead of failing the whole job."""
+        the caller falls back to a flat colour block instead of failing the whole job.
+        scene_text switches the one layer that needs legible in-photo words to Flux;
+        without Flux installed it renders with SDXL and the words are simply absent."""
         try:
-            return self._render(prompt, width, height, lora)
+            return self._render(prompt, width, height, lora, scene_text)
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.error("comfy render failed on %s: %s", self.name, exc)
             return None
 
-    def _render(self, prompt: str, width: int, height: int, lora: str | None) -> bytes | None:
+    def _render(
+        self, prompt: str, width: int, height: int, lora: str | None, scene_text: str | None
+    ) -> bytes | None:
         client_id = uuid.uuid4().hex
-        graph = sdxl_workflow(
-            prompt,
-            width,
-            height,
-            lora,
-            seed=int(time.time()),
-            steps=self.steps,
-            base_checkpoint=self.base_checkpoint,
-            refiner_checkpoint=self.refiner_checkpoint,
-            refiner_switch=self.refiner_switch,
-            hires_scale=self.hires_scale,
-            hires_denoise=self.hires_denoise,
-            hires_steps=self.hires_steps,
-        )
+        if scene_text and self.flux:
+            graph = flux_workflow(
+                scene_text_prompt(prompt, scene_text),
+                width,
+                height,
+                seed=int(time.time()),
+                steps=int(self.flux.get("steps", 4)),
+                unet=self.flux["unet"],
+                t5=self.flux["t5"],
+                clip_l=self.flux["clip_l"],
+                vae=self.flux["vae"],
+            )
+        else:
+            graph = sdxl_workflow(
+                prompt,
+                width,
+                height,
+                lora,
+                seed=int(time.time()),
+                steps=self.steps,
+                base_checkpoint=self.base_checkpoint,
+                refiner_checkpoint=self.refiner_checkpoint,
+                refiner_switch=self.refiner_switch,
+                hires_scale=self.hires_scale,
+                hires_denoise=self.hires_denoise,
+                hires_steps=self.hires_steps,
+            )
         with httpx.Client(base_url=self.base_url, timeout=30.0) as client:
             r = client.post("/prompt", json={"prompt": graph, "client_id": client_id})
             r.raise_for_status()
@@ -316,6 +412,17 @@ def pick_renderer(settings: Settings) -> Renderer:
             hires_scale=settings.sdxl_hires_scale,
             hires_denoise=settings.sdxl_hires_denoise,
             hires_steps=settings.sdxl_hires_steps,
+            flux=(
+                {
+                    "unet": settings.flux_unet,
+                    "t5": settings.flux_t5,
+                    "clip_l": settings.flux_clip_l,
+                    "vae": settings.flux_vae,
+                    "steps": settings.flux_steps,
+                }
+                if settings.flux_unet
+                else None
+            ),
         )
         if renderer.reachable():
             return renderer

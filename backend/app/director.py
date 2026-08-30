@@ -31,6 +31,16 @@ log = logging.getLogger(__name__)
 Role = Literal["headline", "subhead", "body", "cta", "logo", "image", "shape", "caption"]
 DEFAULT_PALETTE = ["#1A1A1A", "#F2A623", "#FFFFFF"]
 
+# Bundled open (OFL) typefaces, app/assets/fonts. The director picks one pairing per
+# piece by mood; layout.py maps it to families and weights.
+Typeface = Literal["inter", "bebas", "playfair", "grotesk"]
+TYPEFACE_GUIDE = {
+    "inter": "neutral, modern, corporate, tech, fintech, real estate",
+    "bebas": "loud, condensed, uppercase - concerts, sport, streetwear, sales, nightlife",
+    "playfair": "elegant serif - weddings, fine dining, luxury, editorial, church",
+    "grotesk": "quirky geometric - creative studios, fashion drops, youth brands",
+}
+
 
 class PlanElement(BaseModel):
     role: Role
@@ -38,6 +48,14 @@ class PlanElement(BaseModel):
     priority: int = Field(ge=1, le=5, description="1 is the most important element")
     image_prompt: str | None = Field(
         default=None, description="For image roles: what the style renderer should paint"
+    )
+    scene_text: str | None = Field(
+        default=None,
+        description=(
+            "For image roles only: one to three words that must physically appear inside "
+            "the photograph, on a sign, banner, jersey or storefront - only when the brief "
+            "asks for it. Everything else is set as real type on top and must stay null."
+        ),
     )
     notes: str = Field(default="", description="Placement or treatment guidance in one line")
 
@@ -50,6 +68,11 @@ class DesignPlan(BaseModel):
     canvas: dict[str, int] = Field(description="width and height in pixels")
     mood: list[str] = Field(description="Three to six adjectives")
     palette_intent: list[str] = Field(description="Hex colours to lean on, from the profile")
+    typeface: Typeface = Field(
+        default="inter",
+        description="Type pairing for the piece: "
+        + "; ".join(f"{k}: {v}" for k, v in TYPEFACE_GUIDE.items()),
+    )
     elements: list[PlanElement]
     source: Literal["director", "heuristic"] = "director"
 
@@ -103,8 +126,35 @@ the way a printed poster is structured, using these roles:
 - image: exactly one. Its image_prompt describes a photographic background for the whole
   poster - the subject, setting, light and mood - with clean negative space. It must not
   ask for any text, lettering, logos or signage; type is added on top afterwards.
-Prefer fewer, stronger elements over many weak ones. The rationale should read like a
-designer explaining choices to a collaborator, in plain language.
+Prefer fewer, stronger elements over many weak ones. Pick the typeface pairing that fits
+the mood. The rationale should read like a designer explaining choices to a collaborator,
+in plain language.
+
+Two examples of the standard expected, for different briefs:
+
+Brief: "Poster for Mama Njeri's Kitchen, a new nyama choma spot in Kilimani, opening 3 October"
+{"rationale": "A choma joint sells on smoke, fire and warmth, so the photo carries the appetite and the type stays confident and simple. Bebas gives it the loud, street-level energy of a Nairobi weekend; the amber accent is the glow of the grill.",
+ "canvas": {"width": 1080, "height": 1350}, "mood": ["smoky", "warm", "loud", "welcoming"],
+ "palette_intent": ["#1B0F08", "#F2A623", "#FFF4E6"], "typeface": "bebas",
+ "elements": [
+  {"role": "image", "content": "background photograph", "priority": 2, "image_prompt": "close up of goat meat searing on an open charcoal grill at dusk, embers and smoke, Kilimani rooftop, warm amber light, shallow depth of field"},
+  {"role": "logo", "content": "Mama Njeri's Kitchen", "priority": 5},
+  {"role": "caption", "content": "Now open in Kilimani", "priority": 4},
+  {"role": "headline", "content": "Choma Done Right", "priority": 1},
+  {"role": "subhead", "content": "Slow fire. Fresh goat. No shortcuts.", "priority": 3},
+  {"role": "body", "content": "Opening Saturday 3 October 2026\\nArgwings Kodhek Road, Kilimani\\nPlatters from Kshs 1,200\\n+254 712 345 678", "priority": 4},
+  {"role": "cta", "content": "Book a table", "priority": 3}]}
+
+Brief: "Save the date for Amani and Wanjiru's wedding, 14 February, Karen"
+{"rationale": "A wedding announcement should feel calm and expensive, so the photo is soft and the type is a serif with room to breathe. Nothing shouts; the date is the second thing you read.",
+ "canvas": {"width": 1080, "height": 1350}, "mood": ["serene", "romantic", "elegant"],
+ "palette_intent": ["#2B2622", "#D9B99B", "#FBF7F2"], "typeface": "playfair",
+ "elements": [
+  {"role": "image", "content": "background photograph", "priority": 2, "image_prompt": "a Kenyan couple walking hand in hand under jacaranda trees in soft morning light, Karen, pastel purple blossoms, gentle bokeh, editorial wedding photography"},
+  {"role": "caption", "content": "Save the date", "priority": 4},
+  {"role": "headline", "content": "Amani & Wanjiru", "priority": 1},
+  {"role": "subhead", "content": "are getting married", "priority": 3},
+  {"role": "body", "content": "Saturday 14 February 2027\\nKaren, Nairobi\\nFormal invitation to follow", "priority": 4}]}
 
 Respond with only the JSON object described by the schema, no other text."""
 
@@ -133,6 +183,7 @@ def heuristic_plan(
         canvas={"width": width, "height": height},
         mood=["direct", "clean", "confident"],
         palette_intent=palette,
+        typeface="inter",
         elements=[
             PlanElement(
                 role="image",
@@ -172,20 +223,22 @@ def _user_text(brief: str, width: int, height: int, profile: dict[str, Any] | No
 async def _call_local_director(settings: Settings, user_text: str, schema: dict[str, Any]) -> str:
     """POST to a local Ollama-compatible /api/chat with structured-output format.
     Split out as its own function so tests can monkeypatch it without a real server."""
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        r = await client.post(
-            f"{settings.local_director_url.rstrip('/')}/api/chat",
-            json={
-                "model": settings.local_director_model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_text},
-                ],
-                "format": schema,
-                "stream": False,
-                "options": {"temperature": 0.7},
-            },
-        )
+    body: dict[str, Any] = {
+        "model": settings.local_director_model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text},
+        ],
+        "format": schema,
+        "stream": False,
+        "options": {"temperature": 0.7},
+    }
+    if settings.local_director_model.startswith(("qwen3", "deepseek-r1")):
+        # Thinking models otherwise spend the whole budget reasoning and return an
+        # empty structured answer; the plan schema is the reasoning here.
+        body["think"] = False
+    async with httpx.AsyncClient(timeout=240.0) as client:
+        r = await client.post(f"{settings.local_director_url.rstrip('/')}/api/chat", json=body)
         r.raise_for_status()
         return str(r.json()["message"]["content"])
 

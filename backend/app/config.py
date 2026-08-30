@@ -64,6 +64,15 @@ class Settings(BaseSettings):
     sdxl_hires_denoise: float = 0.4
     sdxl_hires_steps: int = 12
 
+    # FLUX.1-schnell (Apache 2.0) as GGUF through ComfyUI-GGUF, docs/06 D15. SDXL cannot
+    # spell, so when the director asks for words inside the photograph (a shop sign, a
+    # banner) that one layer renders with Flux instead. Leave flux_unet empty to disable.
+    flux_unet: str = ""
+    flux_t5: str = "t5-v1_1-xxl-encoder-Q4_K_S.gguf"
+    flux_clip_l: str = "clip_l.safetensors"
+    flux_vae: str = "ae.safetensors"
+    flux_steps: int = 4
+
     def agent_token_map(self) -> dict[str, str]:
         """token -> agent_id"""
         out: dict[str, str] = {}

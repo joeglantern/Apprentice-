@@ -29,8 +29,9 @@ BASELINE = "baseline"
 class GenerateRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=2000)
     aesthetic_version: str = Field(default=BASELINE, pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
-    width: int = Field(default=1600, ge=256, le=4096)
-    height: int = Field(default=900, ge=256, le=4096)
+    # Portrait 4:5 by default: the poster and social-post shape, not a web banner.
+    width: int = Field(default=1080, ge=256, le=4096)
+    height: int = Field(default=1350, ge=256, le=4096)
 
 
 class GenerateAccepted(BaseModel):
