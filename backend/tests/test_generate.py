@@ -257,8 +257,22 @@ def test_design_plan_schema_roundtrip() -> None:
         canvas={"width": 10, "height": 10},
         mood=["a"],
         palette_intent=["#000000"],
-        elements=[PlanElement(role="headline", content="Hi", priority=1)],
+        elements=[
+            PlanElement(role="headline", content="Hi", priority=1),
+            PlanElement(role="image", content="a picture", priority=2),
+        ],
     )
     data: dict[str, Any] = plan.model_dump()
     assert DesignPlan.model_validate(data) == plan
+
+
+def test_design_plan_requires_an_image_element() -> None:
+    with pytest.raises(Exception, match="image"):
+        DesignPlan(
+            rationale="r",
+            canvas={"width": 10, "height": 10},
+            mood=["a"],
+            palette_intent=["#000000"],
+            elements=[PlanElement(role="headline", content="Hi", priority=1)],
+        )
     assert isinstance(io.BytesIO(b""), io.BytesIO)

@@ -32,6 +32,7 @@ async def test_local_backend_used_when_configured(monkeypatch: pytest.MonkeyPatc
         "palette_intent": ["#111111"],
         "elements": [
             {"role": "headline", "content": "Jazz Night", "priority": 1, "notes": ""},
+            {"role": "image", "content": "a saxophonist", "priority": 2, "notes": ""},
         ],
     }
 

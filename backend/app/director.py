@@ -21,7 +21,7 @@ from datetime import date
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.config import Settings
 
@@ -48,6 +48,16 @@ class DesignPlan(BaseModel):
     palette_intent: list[str] = Field(description="Hex colours to lean on, from the profile")
     elements: list[PlanElement]
     source: Literal["director", "heuristic"] = "director"
+
+    @model_validator(mode="after")
+    def _has_a_visual(self) -> DesignPlan:
+        """A smaller local model will sometimes drop the image element entirely, which
+        would otherwise silently ship a text-only poster. Reject rather than accept it -
+        the caller (plan_design) falls back to the heuristic plan, which always includes
+        one, on any validation failure."""
+        if not any(e.role == "image" for e in self.elements):
+            raise ValueError("plan has no image element")
+        return self
 
 
 SYSTEM_PROMPT = """You are the creative director for one specific graphic designer. You plan
