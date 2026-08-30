@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 
 import { generate } from "@/lib/api";
-import type { JobKind } from "@/lib/types";
+import type { BrandKit, JobKind } from "@/lib/types";
 
 /** Canvas per kind: posters and photos are 4:5 portrait, a logo is square. */
 const SIZES: Record<JobKind, [number, number]> = {
@@ -16,10 +16,12 @@ export function useGenerate() {
       prompt,
       aestheticVersion,
       kind = "poster",
+      brand,
     }: {
       prompt: string;
       aestheticVersion: string;
       kind?: JobKind;
-    }) => generate(prompt, aestheticVersion, kind, ...SIZES[kind]),
+      brand?: BrandKit;
+    }) => generate(prompt, aestheticVersion, kind, ...SIZES[kind], brand),
   });
 }

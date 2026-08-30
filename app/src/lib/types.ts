@@ -68,6 +68,13 @@ export interface GenerateResult {
 
 export type JobStatus = "queued" | "planning" | "layout" | "render" | "done" | "error";
 
+/** A client's fixed identity: the director treats it as binding across a campaign. */
+export interface BrandKit {
+  name: string;
+  palette: string[]; // #RRGGBB
+  typeface?: "inter" | "bebas" | "playfair" | "grotesk";
+}
+
 /** poster: plan + layout + render. image: one photograph. logo: one mark. */
 export type JobKind = "poster" | "image" | "logo";
 

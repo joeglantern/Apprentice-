@@ -1,13 +1,13 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AestheticSelector } from "@/components/AestheticSelector";
 import { PromptInput } from "@/components/PromptInput";
 import { useAesthetics } from "@/hooks/useAesthetics";
 import { useGenerate } from "@/hooks/useGenerate";
-import type { JobKind } from "@/lib/types";
+import type { BrandKit, JobKind } from "@/lib/types";
 
 const BASELINE = "baseline";
 const KINDS: { value: JobKind; label: string }[] = [
@@ -22,10 +22,23 @@ export default function PromptScreen() {
   const generate = useGenerate();
   const [aestheticVersion, setAestheticVersion] = useState(BASELINE);
   const [kind, setKind] = useState<JobKind>("poster");
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [brandName, setBrandName] = useState("");
+  const [brandPalette, setBrandPalette] = useState("");
+
+  // "#1A2B3C, #F2A623" -> ["#1A2B3C", "#F2A623"]; junk entries are just dropped.
+  const brand = (): BrandKit | undefined => {
+    if (!brandName.trim()) return undefined;
+    const palette = brandPalette
+      .split(/[,\s]+/)
+      .map((c) => c.trim().toUpperCase())
+      .filter((c) => /^#[0-9A-F]{6}$/.test(c));
+    return { name: brandName.trim(), palette };
+  };
 
   const onSubmit = (prompt: string) => {
     generate.mutate(
-      { prompt, aestheticVersion, kind },
+      { prompt, aestheticVersion, kind, brand: brand() },
       {
         onSuccess: (accepted) => {
           router.push({ pathname: "/canvas", params: { jobId: accepted.job_id, prompt } });
@@ -68,6 +81,31 @@ export default function PromptScreen() {
           onSelect={setAestheticVersion}
         />
 
+        <Pressable onPress={() => setBrandOpen(!brandOpen)}>
+          <Text style={styles.brandToggle}>
+            {brandOpen ? "Hide brand kit" : "Brand kit (optional)"}
+          </Text>
+        </Pressable>
+        {brandOpen && (
+          <View style={styles.brandBox}>
+            <TextInput
+              style={styles.brandInput}
+              placeholder="Brand name"
+              placeholderTextColor="#6B707A"
+              value={brandName}
+              onChangeText={setBrandName}
+            />
+            <TextInput
+              style={styles.brandInput}
+              placeholder="Palette, e.g. #1A2B3C #F2A623"
+              placeholderTextColor="#6B707A"
+              autoCapitalize="characters"
+              value={brandPalette}
+              onChangeText={setBrandPalette}
+            />
+          </View>
+        )}
+
         <PromptInput onSubmit={onSubmit} busy={generate.isPending} />
 
         {generate.isError && (
@@ -99,4 +137,16 @@ const styles = StyleSheet.create({
   kindOn: { backgroundColor: "#F4F5F7", borderColor: "#F4F5F7" },
   kindText: { color: "#C7CAD1", fontSize: 13 },
   kindTextOn: { color: "#0B0B0F", fontWeight: "600" },
+  brandToggle: { color: "#8A8F98", fontSize: 13 },
+  brandBox: { gap: 8 },
+  brandInput: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#2A2D34",
+    backgroundColor: "#15161B",
+    color: "#F4F5F7",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
 });
