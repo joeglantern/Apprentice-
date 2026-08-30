@@ -45,6 +45,37 @@ FONT_PAIRINGS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Detail lines get a small Tabler outline icon (app/assets/icons, MIT) chosen from what
+# the line says. Matched in order; the first hit wins; lines that match nothing get none.
+DETAIL_ICONS: list[tuple[str, str]] = [
+    (r"\+?\d[\d ]{7,}\d|\bcall\b|\bphone\b|\btel\b", "phone"),
+    (r"^@|\binstagram\b|\btiktok\b|\bhandle\b", "at"),
+    (r"\b\d{1,2}(:\d{2})?\s?(am|pm)\b|\bgates?\b|\bdoors\b|\bfrom\s\d{1,2}(:\d{2})?\b", "clock"),
+    (
+        r"\b\d{1,2}\s(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b"
+        r"|\b(mon|tues|wednes|thurs|fri|satur|sun)day\b",
+        "calendar",
+    ),
+    (r"\bkshs?\b|\bksh\b|\bfree\b|\bprice\b|\btickets?\b|\bentry\b", "tag"),
+    (
+        r"\broad\b|\bstreet\b|\bavenue\b|\bnairobi\b|\bmombasa\b|\bkisumu\b|\bkaren\b"
+        r"|\bwestlands\b|\bkilimani\b|\bvenue\b|\bhall\b|\bgrounds\b|\bcathedral\b"
+        r"|\bchurch\b|\bmall\b",
+        "map-pin",
+    ),
+]
+
+
+def detail_icon(line: str) -> str | None:
+    import re
+
+    text = line.strip().lower()
+    for pattern, icon in DETAIL_ICONS:
+        if re.search(pattern, text):
+            return icon
+    return None
+
+
 # Poster headlines are big. A designer profile can push this up, never below the floor.
 HEADLINE_RATIO_FLOOR = 0.075
 HEADLINE_RATIO_DEFAULT = 0.085
@@ -444,6 +475,14 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
             layer["typography"]["letter_spacing"] = round(size * 0.08, 1)
             layer["background"] = {"hex": accent, "opacity": 1.0}
             layer["color"] = {"hex": _readable_text_colour(scrim, accent), "opacity": 1.0}
+        if element.role == "body" and align != "center":
+            # Icon column: each detail line gets an outline icon to its left, so the
+            # text box starts one icon width in. Centred stacks stay icon-free.
+            icons = [detail_icon(p) for p in content.split("\n")]
+            if any(icons):
+                icon_size = int(size * 1.05)
+                layer["_icons"] = (icons, icon_size, line_height)
+                w = text_width - int(icon_size * 1.5)
         layer["bbox"] = {"x": x_for(w), "y": 0, "width": w, "height": h}
         blocks.append((layer, size))  # type: ignore[arg-type]
 
@@ -481,6 +520,36 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         else:
             y -= gap
     for layer in reversed(placed):
+        icon_spec = layer.pop("_icons", None)
+        if icon_spec:
+            icons, icon_size, lh = icon_spec
+            size = layer["typography"]["font_size"]
+            col_x = (
+                layer["bbox"]["x"]
+                if align == "left"
+                else layer["bbox"]["x"] + layer["bbox"]["width"] + int(icon_size * 0.5)
+            )
+            if align == "left":
+                layer["bbox"]["x"] += int(icon_size * 1.5)
+            for i, icon in enumerate(icons):
+                if not icon:
+                    continue
+                add(
+                    {
+                        "name": f"icon {icon}",
+                        "type": "icon",
+                        "icon": icon,
+                        "bbox": {
+                            "x": col_x,
+                            "y": layer["bbox"]["y"]
+                            + int(i * size * lh)
+                            + int((size * lh - icon_size) / 2),
+                            "width": icon_size,
+                            "height": icon_size,
+                        },
+                        "color": {"hex": accent, "opacity": 1.0},
+                    }
+                )
         add(layer)
 
     return {"canvas": {"width": width, "height": height}, "layers": layers}

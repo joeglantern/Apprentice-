@@ -1,6 +1,7 @@
-import Svg, { Ellipse, G, Image as SvgImage, Rect, Text as SvgText, TSpan } from "react-native-svg";
+import Svg, { Ellipse, G, Image as SvgImage, Path, Rect, Text as SvgText, TSpan } from "react-native-svg";
 
 import { rasterUrl } from "@/lib/api";
+import { ICON_PATHS } from "@/lib/icons";
 import type { Layer } from "@/lib/types";
 
 /** Greedy word wrap on a character budget. Explicit newlines always break. */
@@ -40,6 +41,25 @@ export function CanvasPreview({ jobId, layers, canvasWidth, canvasHeight }: Prop
     <Svg width="100%" viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}>
       {ordered.map((layer) => {
         const { x, y, width, height } = layer.bbox;
+        if (layer.type === "icon" && layer.icon && ICON_PATHS[layer.icon]) {
+          // Tabler outline icons live on a 24-unit grid, stroke 2; scale into the bbox.
+          const k = width / 24;
+          return (
+            <G key={layer.layer_id} transform={`translate(${x}, ${y}) scale(${k})`}>
+              {ICON_PATHS[layer.icon].map((d, i) => (
+                <Path
+                  key={i}
+                  d={d}
+                  fill="none"
+                  stroke={layer.color?.hex ?? "#FFFFFF"}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
+            </G>
+          );
+        }
         if (layer.type === "shape" && layer.shape === "ellipse") {
           return (
             <Ellipse

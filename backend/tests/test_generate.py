@@ -625,3 +625,31 @@ def test_layout_never_crashes_on_a_malformed_hex_defensively() -> None:
 
     assert _relative_luminance("#zz1234") == 0.5
     assert _relative_luminance("#fff") == 0.5
+
+
+def test_detail_lines_get_icons_and_the_body_shifts_right() -> None:
+    from app.layout import detail_icon
+
+    assert detail_icon("Saturday 3 October 2026") == "calendar"
+    assert detail_icon("6:00 PM") == "clock"
+    assert detail_icon("Argwings Kodhek Road, Kilimani") == "map-pin"
+    assert detail_icon("Platters from Kshs 1,200") == "tag"
+    assert detail_icon("+254 712 345 678") == "phone"
+    assert detail_icon("@umojathreads") == "at"
+    assert detail_icon("Formal invitation to follow") is None
+
+    plan = heuristic_plan("Concert", 1080, 1350, None)
+    plan.elements.append(
+        PlanElement(role="body", content="5 December 2026\nGates open 4pm\nKshs 2,500", priority=4)
+    )
+    layout = heuristic_layout(plan, None)
+    icons = [layer for layer in layout["layers"] if layer["type"] == "icon"]
+    body = next(layer for layer in layout["layers"] if layer["name"] == "body")
+    assert [i["icon"] for i in icons] == ["calendar", "clock", "tag"]
+    assert all(i["bbox"]["x"] < body["bbox"]["x"] for i in icons)
+    assert icons[0]["bbox"]["y"] < icons[1]["bbox"]["y"] < icons[2]["bbox"]["y"]
+    assert body["bbox"]["y"] <= icons[0]["bbox"]["y"]
+    # A centred stack carries no icon column.
+    plan.composition = "centered"
+    layout = heuristic_layout(plan, None)
+    assert not [layer for layer in layout["layers"] if layer["type"] == "icon"]

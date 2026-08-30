@@ -1,6 +1,6 @@
 /** Mirrors the backend's doc 01 section 3 layer shape and the /generate job response. */
 
-export type LayerType = "text" | "shape" | "image";
+export type LayerType = "text" | "shape" | "image" | "icon";
 
 export interface BBox {
   x: number;
@@ -30,6 +30,7 @@ export interface Layer {
   bbox: BBox;
   visible?: boolean;
   shape?: "rect" | "ellipse"; // shapes only; rect when absent
+  icon?: string; // icon layers: a key into lib/icons.ts
   text?: string;
   align?: "left" | "center" | "right";
   typography?: Typography;
