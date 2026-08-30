@@ -270,6 +270,60 @@ def test_scene_text_routes_that_layer_to_flux(monkeypatch: pytest.MonkeyPatch) -
     assert seen[2]["4"]["class_type"] == "CheckpointLoaderSimple"
 
 
+def test_layout_compositions_differ_and_badge_renders() -> None:
+    plan = heuristic_plan("Concert", 1080, 1350, None)
+    plan.date_badge = "12 DEC"
+    seen: dict[str, dict[str, Any]] = {}
+    for composition in ("anchor", "centered", "split"):
+        plan.composition = composition  # type: ignore[assignment]
+        layout = heuristic_layout(plan, None)
+        by_name = {layer["name"]: layer for layer in layout["layers"]}
+        seen[composition] = by_name
+        assert by_name["date badge"]["shape"] == "ellipse"
+        assert by_name["badge day"]["text"] == "12" and by_name["badge month"]["text"] == "DEC"
+        assert by_name["subhead"]["color"]["hex"] != by_name["headline"]["color"]["hex"]
+        for layer in layout["layers"]:
+            b = layer["bbox"]
+            assert 0 <= b["x"] and b["x"] + b["width"] <= 1080
+            assert 0 <= b["y"] and b["y"] + b["height"] <= 1350
+    assert seen["centered"]["headline"]["align"] == "center"
+    assert seen["anchor"]["headline"]["align"] == "left"
+    # split: the panel is solid, has no fade, and the photo does not run under it.
+    assert seen["split"]["scrim"]["color"]["opacity"] == 1.0
+    assert "scrim fade" not in seen["split"]
+    image = next(v for v in seen["split"].values() if v["type"] == "image")
+    assert image["bbox"]["height"] < 1350
+    # centered's scrim starts higher and fades longer; its cta is a centred pill.
+    assert seen["centered"]["scrim"]["bbox"]["y"] < seen["anchor"]["scrim"]["bbox"]["y"]
+    assert seen["centered"]["cta"]["bbox"]["x"] > seen["anchor"]["cta"]["bbox"]["x"]
+
+
+def test_direct_plan_for_image_and_logo(storage: FakeStorage) -> None:
+    from app.generation import direct_plan
+
+    settings = Settings(database_url="sqlite://")
+    renderer = FakeRenderer()
+    plan, result = run_generation(
+        job_id="44444444-4444-4444-8444-444444444444",
+        prompt='logo for "Umoja Threads", a Nairobi streetwear label',
+        width=1024,
+        height=1024,
+        aesthetic_version="baseline",
+        lora_file=None,
+        profile=None,
+        settings=settings,
+        renderer=renderer,
+        storage=SyncStorage(storage),
+        progress=lambda stage, data: None,
+        kind="logo",
+    )
+    assert len(result["layers"]) == 1 and result["layers"][0]["scene_text"] == "Umoja Threads"
+    assert "vector logo" in renderer.calls[0][0]
+    plan, layout = direct_plan("a lioness at dawn in the Mara", 1080, 1350, "image")
+    assert layout["layers"][0]["bbox"] == {"x": 0, "y": 0, "width": 1080, "height": 1350}
+    assert "scene_text" not in layout["layers"][0] and "photograph" in plan.elements[0].image_prompt
+
+
 def test_layout_honours_typeface_and_scene_text() -> None:
     plan = heuristic_plan("Concert", 1080, 1350, None)
     plan.typeface = "bebas"

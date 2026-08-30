@@ -122,6 +122,7 @@ def generate_design(self: Any, job_id: str) -> str:
         ]
         profile = build_profile(payloads) if payloads else None
         prompt, width, height, aesthetic = job.prompt, job.width, job.height, job.aesthetic_version
+        kind = job.kind
 
     try:
         plan, result = run_generation(
@@ -130,6 +131,7 @@ def generate_design(self: Any, job_id: str) -> str:
             width=width,
             height=height,
             aesthetic_version=aesthetic,
+            kind=kind,
             lora_file=lora_file,
             profile=profile,
             settings=settings,

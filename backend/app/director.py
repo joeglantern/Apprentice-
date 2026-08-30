@@ -34,6 +34,7 @@ DEFAULT_PALETTE = ["#1A1A1A", "#F2A623", "#FFFFFF"]
 # Bundled open (OFL) typefaces, app/assets/fonts. The director picks one pairing per
 # piece by mood; layout.py maps it to families and weights.
 Typeface = Literal["inter", "bebas", "playfair", "grotesk"]
+Composition = Literal["anchor", "centered", "split"]
 TYPEFACE_GUIDE = {
     "inter": "neutral, modern, corporate, tech, fintech, real estate",
     "bebas": "loud, condensed, uppercase - concerts, sport, streetwear, sales, nightlife",
@@ -72,6 +73,22 @@ class DesignPlan(BaseModel):
         default="inter",
         description="Type pairing for the piece: "
         + "; ".join(f"{k}: {v}" for k, v in TYPEFACE_GUIDE.items()),
+    )
+    composition: Composition = Field(
+        default="anchor",
+        description=(
+            "anchor: type bottom-left over the photo (editorial, most briefs); centered: "
+            "type centred low over the photo (announcements, events, weddings); split: a "
+            "solid colour panel carries the type beside or below the photo (retail, real "
+            "estate, anything with a lot of details)"
+        ),
+    )
+    date_badge: str | None = Field(
+        default=None,
+        description=(
+            "For dated events only: the day and short month for a round badge, e.g. "
+            '"12 DEC". Null for anything that is not a dated event.'
+        ),
     )
     elements: list[PlanElement]
     source: Literal["director", "heuristic"] = "director"
@@ -126,16 +143,17 @@ the way a printed poster is structured, using these roles:
 - image: exactly one. Its image_prompt describes a photographic background for the whole
   poster - the subject, setting, light and mood - with clean negative space. It must not
   ask for any text, lettering, logos or signage; type is added on top afterwards.
-Prefer fewer, stronger elements over many weak ones. Pick the typeface pairing that fits
-the mood. The rationale should read like a designer explaining choices to a collaborator,
-in plain language.
+Prefer fewer, stronger elements over many weak ones. Pick the typeface pairing and the
+composition that fit the mood - do not default to the same composition for every brief.
+Give dated events a date_badge. The rationale should read like a designer explaining
+choices to a collaborator, in plain language.
 
 Two examples of the standard expected, for different briefs:
 
 Brief: "Poster for Mama Njeri's Kitchen, a new nyama choma spot in Kilimani, opening 3 October"
 {"rationale": "A choma joint sells on smoke, fire and warmth, so the photo carries the appetite and the type stays confident and simple. Bebas gives it the loud, street-level energy of a Nairobi weekend; the amber accent is the glow of the grill.",
  "canvas": {"width": 1080, "height": 1350}, "mood": ["smoky", "warm", "loud", "welcoming"],
- "palette_intent": ["#1B0F08", "#F2A623", "#FFF4E6"], "typeface": "bebas",
+ "palette_intent": ["#1B0F08", "#F2A623", "#FFF4E6"], "typeface": "bebas", "composition": "anchor", "date_badge": "3 OCT",
  "elements": [
   {"role": "image", "content": "background photograph", "priority": 2, "image_prompt": "close up of goat meat searing on an open charcoal grill at dusk, embers and smoke, Kilimani rooftop, warm amber light, shallow depth of field"},
   {"role": "logo", "content": "Mama Njeri's Kitchen", "priority": 5},
@@ -148,7 +166,7 @@ Brief: "Poster for Mama Njeri's Kitchen, a new nyama choma spot in Kilimani, ope
 Brief: "Save the date for Amani and Wanjiru's wedding, 14 February, Karen"
 {"rationale": "A wedding announcement should feel calm and expensive, so the photo is soft and the type is a serif with room to breathe. Nothing shouts; the date is the second thing you read.",
  "canvas": {"width": 1080, "height": 1350}, "mood": ["serene", "romantic", "elegant"],
- "palette_intent": ["#2B2622", "#D9B99B", "#FBF7F2"], "typeface": "playfair",
+ "palette_intent": ["#2B2622", "#D9B99B", "#FBF7F2"], "typeface": "playfair", "composition": "centered", "date_badge": null,
  "elements": [
   {"role": "image", "content": "background photograph", "priority": 2, "image_prompt": "a Kenyan couple walking hand in hand under jacaranda trees in soft morning light, Karen, pastel purple blossoms, gentle bokeh, editorial wedding photography"},
   {"role": "caption", "content": "Save the date", "priority": 4},

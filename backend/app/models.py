@@ -49,6 +49,9 @@ class Job(SQLModel, table=True):
     job_id: str = Field(primary_key=True, max_length=36)
     prompt: str
     aesthetic_version: str = Field(max_length=64)
+    # poster: plan + layout + render. image: one photograph, no layout. logo: one
+    # mark on a plain ground. See generation.run_generation.
+    kind: str = Field(default="poster", max_length=16)
     width: int
     height: int
     requested_by: str = Field(max_length=100)

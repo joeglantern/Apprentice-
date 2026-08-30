@@ -1,6 +1,6 @@
 /** Thin fetch client. No React, no state - hooks/ wraps this for components. */
 
-import type { Aesthetic, GenerateAccepted, Job, JobSummary } from "./types";
+import type { Aesthetic, GenerateAccepted, Job, JobKind, JobSummary } from "./types";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const AGENT_TOKEN = process.env.EXPO_PUBLIC_AGENT_TOKEN;
@@ -35,13 +35,14 @@ async function unwrap<T>(res: Response): Promise<T> {
 export async function generate(
   prompt: string,
   aestheticVersion: string,
+  kind: JobKind = "poster",
   width = 1080,
   height = 1350,
 ): Promise<GenerateAccepted> {
   const res = await fetch(`${BASE_URL}/generate`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ prompt, aesthetic_version: aestheticVersion, width, height }),
+    body: JSON.stringify({ prompt, aesthetic_version: aestheticVersion, kind, width, height }),
   });
   return unwrap<GenerateAccepted>(res);
 }

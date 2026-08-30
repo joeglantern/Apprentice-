@@ -29,6 +29,7 @@ export interface Layer {
   z_index: number;
   bbox: BBox;
   visible?: boolean;
+  shape?: "rect" | "ellipse"; // shapes only; rect when absent
   text?: string;
   align?: "left" | "center" | "right";
   typography?: Typography;
@@ -66,6 +67,9 @@ export interface GenerateResult {
 
 export type JobStatus = "queued" | "planning" | "layout" | "render" | "done" | "error";
 
+/** poster: plan + layout + render. image: one photograph. logo: one mark. */
+export type JobKind = "poster" | "image" | "logo";
+
 /** The /generate list endpoint's row shape - no plan/result, matching the backend's
  * JobSummary (those fields can be large and the list view never reads them). */
 export interface JobSummary {
@@ -73,6 +77,7 @@ export interface JobSummary {
   status: JobStatus;
   prompt: string;
   aesthetic_version: string;
+  kind: JobKind;
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +87,7 @@ export interface Job {
   status: JobStatus;
   prompt: string;
   aesthetic_version: string;
+  kind: JobKind;
   plan: DesignPlan | null;
   result: GenerateResult | null;
   error: string | null;

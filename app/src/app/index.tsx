@@ -7,18 +7,25 @@ import { AestheticSelector } from "@/components/AestheticSelector";
 import { PromptInput } from "@/components/PromptInput";
 import { useAesthetics } from "@/hooks/useAesthetics";
 import { useGenerate } from "@/hooks/useGenerate";
+import type { JobKind } from "@/lib/types";
 
 const BASELINE = "baseline";
+const KINDS: { value: JobKind; label: string }[] = [
+  { value: "poster", label: "Poster" },
+  { value: "image", label: "Photo" },
+  { value: "logo", label: "Logo" },
+];
 
 export default function PromptScreen() {
   const router = useRouter();
   const aesthetics = useAesthetics();
   const generate = useGenerate();
   const [aestheticVersion, setAestheticVersion] = useState(BASELINE);
+  const [kind, setKind] = useState<JobKind>("poster");
 
   const onSubmit = (prompt: string) => {
     generate.mutate(
-      { prompt, aestheticVersion },
+      { prompt, aestheticVersion, kind },
       {
         onSuccess: (accepted) => {
           router.push({ pathname: "/canvas", params: { jobId: accepted.job_id, prompt } });
@@ -41,6 +48,18 @@ export default function PromptScreen() {
             Describe the piece. The director plans it, the renderer paints it, in the
             designer&apos;s signature style once one exists.
           </Text>
+        </View>
+
+        <View style={styles.kinds}>
+          {KINDS.map((k) => (
+            <Pressable
+              key={k.value}
+              onPress={() => setKind(k.value)}
+              style={[styles.kind, kind === k.value && styles.kindOn]}
+            >
+              <Text style={[styles.kindText, kind === k.value && styles.kindTextOn]}>{k.label}</Text>
+            </Pressable>
+          ))}
         </View>
 
         <AestheticSelector
@@ -68,4 +87,16 @@ const styles = StyleSheet.create({
   historyLink: { color: "#8A8F98", fontSize: 14 },
   subtitle: { color: "#8A8F98", fontSize: 14, lineHeight: 20 },
   error: { color: "#E5484D", fontSize: 13 },
+  kinds: { flexDirection: "row", gap: 8 },
+  kind: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#2A2D34",
+    backgroundColor: "#15161B",
+  },
+  kindOn: { backgroundColor: "#F4F5F7", borderColor: "#F4F5F7" },
+  kindText: { color: "#C7CAD1", fontSize: 13 },
+  kindTextOn: { color: "#0B0B0F", fontWeight: "600" },
 });

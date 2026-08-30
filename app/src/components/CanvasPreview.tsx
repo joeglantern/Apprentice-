@@ -1,4 +1,4 @@
-import Svg, { G, Image as SvgImage, Rect, Text as SvgText, TSpan } from "react-native-svg";
+import Svg, { Ellipse, G, Image as SvgImage, Rect, Text as SvgText, TSpan } from "react-native-svg";
 
 import { rasterUrl } from "@/lib/api";
 import type { Layer } from "@/lib/types";
@@ -40,6 +40,19 @@ export function CanvasPreview({ jobId, layers, canvasWidth, canvasHeight }: Prop
     <Svg width="100%" viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}>
       {ordered.map((layer) => {
         const { x, y, width, height } = layer.bbox;
+        if (layer.type === "shape" && layer.shape === "ellipse") {
+          return (
+            <Ellipse
+              key={layer.layer_id}
+              cx={x + width / 2}
+              cy={y + height / 2}
+              rx={width / 2}
+              ry={height / 2}
+              fill={layer.color?.hex ?? "#CCCCCC"}
+              fillOpacity={layer.color?.opacity ?? 1}
+            />
+          );
+        }
         if (layer.type === "shape") {
           return (
             <Rect

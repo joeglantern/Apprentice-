@@ -117,6 +117,25 @@ def _brightest(palette: list[str]) -> str:
     return max(palette, key=_relative_luminance)
 
 
+def _saturation(hex_colour: str) -> float:
+    try:
+        r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    except (ValueError, IndexError):
+        return 0.0
+    hi, lo = max(r, g, b), min(r, g, b)
+    return 0.0 if hi == 0 else (hi - lo) / hi
+
+
+def _accent(palette: list[str]) -> str:
+    """The most saturated mid-tone in the palette - the colour that reads as 'the
+    accent' rather than the white or the near-black, which are the ground and the
+    type. Falls back to the brightest colour for a palette with no real hue."""
+    hued = [c for c in palette if 0.04 < _relative_luminance(c) < 0.9 and _saturation(c) > 0.15]
+    if hued:
+        return max(hued, key=_saturation)
+    return _brightest(palette) if len(palette) > 1 else "#FFFFFF"
+
+
 def _wordmark(content: str) -> str:
     text = content.strip()
     for suffix in (" logo", " wordmark", " brand mark"):
@@ -142,11 +161,20 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     )
     palette = plan.palette_intent or list(DEFAULT_PALETTE)
     scrim = _darkest(palette)
-    accent = _brightest(palette) if len(palette) > 1 else "#FFFFFF"
+    accent = _accent(palette)
     scrim_opacity = 0.78
     on_scrim = _blend(scrim, scrim_opacity)
     fg = _readable_text_colour("#FFFFFF", on_scrim)
     accent = _readable_text_colour(accent, on_scrim, min_ratio=3.0)
+
+    # The designer's own dominant font wins once there is a profile; otherwise the
+    # director's pairing from the bundled OFL set (app/assets/fonts).
+    pairing = FONT_PAIRINGS.get(plan.typeface, FONT_PAIRINGS["inter"])
+    profile_font = _dominant(profile, "fonts", "")
+    display_family = profile_font or pairing["display"]
+    body_family = profile_font or pairing["body"]
+    display_weight = pairing["display_weight"]
+    headline_upper = pairing["uppercase"]
 
     ordered = sorted(plan.elements, key=lambda e: e.priority)
     layers: list[dict[str, Any]] = []
@@ -156,8 +184,48 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         layer["z_index"] = len(layers)
         layers.append(layer)
 
-    # 1. Full-bleed image. Without one (director dropped it, validator would have
-    #    refused) the darkest palette colour is the ground.
+    # Composition (docs/06 D16). anchor: type bottom-left over the photo. centered:
+    # type centred low over the photo. split: a solid panel carries the type and the
+    # photo fills the rest, so nothing sits on the photo at all.
+    composition = plan.composition
+    if composition == "centered":
+        align = "center"
+    if composition == "split":
+        scrim_opacity = 1.0
+        on_scrim = scrim
+        fg = _readable_text_colour("#FFFFFF", on_scrim)
+        accent = _readable_text_colour(accent, on_scrim, min_ratio=3.0)
+    if composition == "split":
+        if landscape:
+            zone = {"x": 0, "y": 0, "width": int(width * 0.5), "height": height}
+            image_box = {
+                "x": zone["width"],
+                "y": 0,
+                "width": width - zone["width"],
+                "height": height,
+            }
+        else:
+            zone_h = int(height * 0.44)
+            zone = {"x": 0, "y": height - zone_h, "width": width, "height": zone_h}
+            image_box = {"x": 0, "y": 0, "width": width, "height": height - zone_h}
+    elif composition == "centered":
+        zone = {
+            "x": 0,
+            "y": int(height * 0.38),
+            "width": width,
+            "height": height - int(height * 0.38),
+        }
+        image_box = {"x": 0, "y": 0, "width": width, "height": height}
+    elif landscape:
+        zone = {"x": 0, "y": 0, "width": int(width * 0.56), "height": height}
+        image_box = {"x": 0, "y": 0, "width": width, "height": height}
+    else:
+        zone_h = int(height * 0.58)
+        zone = {"x": 0, "y": height - zone_h, "width": width, "height": zone_h}
+        image_box = {"x": 0, "y": 0, "width": width, "height": height}
+
+    # 1. The image: full bleed, or the non-panel side of a split. Without one (the
+    #    validator refuses such plans) the darkest palette colour is the ground.
     images = [e for e in ordered if e.role == "image"]
     if images:
         image = images[0]
@@ -165,7 +233,7 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         layer = {
             "name": image.content,
             "type": "image",
-            "bbox": {"x": 0, "y": 0, "width": width, "height": height},
+            "bbox": dict(image_box),
             "image_prompt": f"{base_prompt}, {IMAGE_PROMPT_SUFFIX}",
         }
         if image.scene_text:
@@ -186,12 +254,7 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
             }
         )
 
-    # 2. Text zone + scrim. Left ~55% on landscape, bottom ~58% on portrait.
-    if landscape:
-        zone = {"x": 0, "y": 0, "width": int(width * 0.56), "height": height}
-    else:
-        zone_h = int(height * 0.58)
-        zone = {"x": 0, "y": height - zone_h, "width": width, "height": zone_h}
+    # 2. The scrim (or, for split, the solid panel) over the text zone.
     add(
         {
             "name": "scrim",
@@ -202,8 +265,10 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     )
     # The layer schema has no gradients, so the scrim fades into the photo through a
     # run of thin bands of falling opacity past its edge instead of a hard cut.
-    steps = 8
+    steps = 8 if composition != "split" else 0  # a solid panel has a hard edge on purpose
     fade = int((width if landscape else height) * 0.14)
+    if composition == "centered":
+        fade = int(height * 0.2)
     for i in range(steps):
         opacity = round(scrim_opacity * (1 - (i + 1) / (steps + 1)), 3)
         # Edges are cumulative rounded offsets so the bands tile exactly: no gap (a
@@ -221,27 +286,82 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
                 "color": {"hex": scrim, "opacity": opacity},
             }
         )
-    # A light full-canvas tint unifies the photo with the palette.
+    # A light tint over the photo unifies it with the palette.
     add(
         {
             "name": "tint",
             "type": "shape",
-            "bbox": {"x": 0, "y": 0, "width": width, "height": height},
+            "bbox": dict(image_box),
             "color": {"hex": scrim, "opacity": 0.12},
         }
     )
 
+    # Date badge: a round accent disc top-right with the day large and the month small.
+    if plan.date_badge and plan.date_badge.strip():
+        parts = plan.date_badge.strip().upper().split()
+        day, month = (parts[0], " ".join(parts[1:])) if len(parts) > 1 else (parts[0], "")
+        d = int(short_side * 0.17)
+        bx, by = width - margin - d, margin
+        badge_fg = _readable_text_colour(scrim, accent)
+        add(
+            {
+                "name": "date badge",
+                "type": "shape",
+                "bbox": {"x": bx, "y": by, "width": d, "height": d},
+                "color": {"hex": accent, "opacity": 1.0},
+                "shape": "ellipse",
+            }
+        )
+        day_size = int(d * (0.42 if len(day) <= 2 else 0.3))
+        add(
+            {
+                "name": "badge day",
+                "type": "text",
+                "bbox": {
+                    "x": bx,
+                    "y": by + int(d * 0.18),
+                    "width": d,
+                    "height": int(day_size * 1.1),
+                },
+                "text": day,
+                "align": "center",
+                "typography": {
+                    "font_family": display_family,
+                    "font_size": day_size,
+                    "font_weight": display_weight,
+                    "line_height": 1.0,
+                },
+                "color": {"hex": badge_fg, "opacity": 1.0},
+            }
+        )
+        if month:
+            m_size = int(d * 0.14)
+            add(
+                {
+                    "name": "badge month",
+                    "type": "text",
+                    "bbox": {
+                        "x": bx,
+                        "y": by + int(d * 0.66),
+                        "width": d,
+                        "height": int(m_size * 1.3),
+                    },
+                    "text": month,
+                    "align": "center",
+                    "typography": {
+                        "font_family": body_family,
+                        "font_size": m_size,
+                        "font_weight": 600,
+                        "letter_spacing": round(m_size * 0.15, 1),
+                        "line_height": 1.2,
+                    },
+                    "color": {"hex": badge_fg, "opacity": 1.0},
+                }
+            )
+
     text_left = zone["x"] + margin
     text_width = zone["width"] - 2 * margin
     zone_bottom = zone["y"] + zone["height"] - margin
-    # The designer's own dominant font wins once there is a profile; otherwise the
-    # director's pairing from the bundled OFL set (app/assets/fonts).
-    pairing = FONT_PAIRINGS.get(plan.typeface, FONT_PAIRINGS["inter"])
-    profile_font = _dominant(profile, "fonts", "")
-    display_family = profile_font or pairing["display"]
-    body_family = profile_font or pairing["body"]
-    display_weight = pairing["display_weight"]
-    headline_upper = pairing["uppercase"]
     font_family = body_family
 
     def x_for(w: int) -> int:
@@ -308,7 +428,12 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
                 ),
                 "line_height": line_height,
             },
-            "color": {"hex": accent if element.role == "caption" else fg, "opacity": 1.0},
+            # Mixed colour on purpose: eyebrow and subhead in the accent, headline and
+            # details in the foreground, so the stack reads as three levels, not one.
+            "color": {
+                "hex": accent if element.role in ("caption", "subhead") else fg,
+                "opacity": 1.0,
+            },
         }
         if element.role == "caption":
             layer["typography"]["letter_spacing"] = round(size * 0.2, 1)
