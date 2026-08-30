@@ -101,6 +101,20 @@ async def read_job(
     return job
 
 
+@router.get("/generate", response_model=list[JobRead])
+async def list_jobs(
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session),
+    agent_id: str = Depends(verify_agent_token),
+) -> list[Job]:
+    """The requesting agent's own generation history, newest first - what a
+    collaborator sees when they come back to the app to look at past results."""
+    stmt = select(Job).where(Job.requested_by == agent_id)
+    stmt = stmt.order_by(Job.created_at.desc()).limit(min(max(limit, 1), 200))  # type: ignore[attr-defined]
+    result = await session.exec(stmt)
+    return list(result.all())
+
+
 @router.get("/generate/{job_id}/raster/{layer_id}")
 async def read_raster(
     job_id: JobId,

@@ -300,6 +300,25 @@ async def test_generate_routes(client: AsyncClient, monkeypatch: pytest.MonkeyPa
     assert r.status_code == 404
 
 
+async def test_list_jobs_scoped_to_agent(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.routes.generate as gen_mod
+
+    monkeypatch.setattr(gen_mod, "enqueue_generation", lambda job_id: None)
+    await client.post("/generate", json={"prompt": "poster for agent a"}, headers=AUTH_A)
+    await client.post("/generate", json={"prompt": "poster for agent b"}, headers=AUTH_B)
+
+    r = await client.get("/generate", headers=AUTH_A)
+    assert r.status_code == 200
+    jobs = r.json()
+    assert len(jobs) == 1
+    assert jobs[0]["prompt"] == "poster for agent a"
+
+    r = await client.get("/generate", headers=AUTH_B)
+    assert [j["prompt"] for j in r.json()] == ["poster for agent b"]
+
+
 def test_design_plan_schema_roundtrip() -> None:
     plan = DesignPlan(
         rationale="r",
