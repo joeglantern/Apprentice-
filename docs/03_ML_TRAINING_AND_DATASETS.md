@@ -63,18 +63,55 @@ print(torch.cuda.get_device_properties(0).total_memory / 1e9, "GB")
 ## 4. Public datasets to benchmark against
 
 Your real training data is the designer's own work - these are for sanity
-checks, not primary training data:
+checks and layout pretraining, not primary training data. Every entry below
+was checked against its actual license page directly (docs/06 D11 caught a
+summary-vs-reality gap on a checkpoint license the same way) rather than
+trusted from a description, because this project may become paid work for
+the designer's own business (LBA) - a non-commercial-only dataset is not
+usable here even if it's the closest fit otherwise.
 
+- **Crello** (`cyberagent/crello` on Hugging Face) - **recommended**.
+  CDLA-Permissive-2.0, commercial use allowed. 23.3k real design layouts
+  (former crello.com/VistaCreate templates: social posts, banners, posters)
+  with per-element position, size, rotation, opacity, RGBA colour, and full
+  text typography (typeface, size, weight, italic, alignment, line height,
+  letter spacing) - close enough to this project's own Layer/Typography/
+  Colour schema (doc 01 §3) that mapping one onto the other is mostly a
+  rename, not a redesign. This is the one to pretrain the layout model on
+  before the designer's own much smaller dataset.
 - **Rico** - large mobile UI layout dataset; good for validating that your
   layout model's bounding-box/typography predictions are in a sane range
-  before you trust it on scarce real data.
+  before you trust it on scarce real data. Not poster-specific.
 - **PubLayNet** - document layout analysis (text/title/figure/table regions);
-  useful pretraining signal for the layout model before fine-tuning on the
-  designer's much smaller, much more specific dataset.
-- **CGL-Dataset** - graphic-design-layout-specific (posters, ads); the closest
-  public analogue to what you're actually building, worth a fine-tuning pass
-  before the designer-specific pass so the model isn't learning composition
-  from scratch on a small dataset.
+  useful pretraining signal, but its documents are academic papers/forms,
+  not posters - weaker composition signal than Crello for this use case.
+
+Checked and rejected (or left unresolved) - keeping this list so nobody
+re-spends the research time re-checking the same ones:
+
+- ~~**CGL-Dataset / CGL-Dataset-v2**~~ - this section previously recommended
+  it as "the closest public analogue" without checking the license first.
+  It's CC BY-NC-SA 4.0 - non-commercial, so it's out for the same reason as
+  D11's Juggernaut XL. Its annotation categories (logo/text/underlay/
+  embellishment on real e-commerce ad posters) are still useful as a
+  reference for schema design, just not as training data. Its ad copy is
+  also Chinese-language, a weaker fit for LBA's market regardless of licence.
+- **Poster100K** (`PosterCraft/Poster100K`) - CC BY-NC-SA 4.0 *and* the
+  underlying images are real copyrighted movie/TV posters used under a
+  "non-commercial research only" fair-use disclaimer - doubly blocked, not
+  just a licence technicality.
+- **PKU-PosterLayout** - gated behind signing an unpublished Release
+  Agreement (emailed to the authors); its actual terms aren't public, so
+  commercial-use compatibility can't be verified without requesting and
+  reading it first. Don't adopt on the strength of the paper alone.
+- **POSTAPosterArt** - license listed as "unknown" on its own dataset card.
+  Also solves a narrower problem than the one we have (stylized text effects
+  - metallic/3D lettering - not layout hierarchy/composition).
+- **Contra Labs' creative-ad-design-dataset** - CC-BY-4.0, genuinely clear,
+  but only 35 briefs / 105 images, explicitly a preview/eval set rather than
+  training data. Worth keeping as a small human-crafted benchmark ("does our
+  output look as good as a professional's for the same brief"), not as
+  something to train on.
 
 ## 5. Data flow: nightly pull
 

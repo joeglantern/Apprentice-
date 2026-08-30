@@ -292,3 +292,62 @@ Both are covered by tests now (`test_query_param_token_is_a_fallback_not_a_bypas
 `test_realtime.py`). `list_jobs` was also changed at the same time to select
 only the summary columns the history list actually reads, not full rows with
 `plan`/`result`, which can be large and were never read by that view.
+
+Follow-up the same day: a code review of this diff caught that the query-token
+fallback had been added to the *shared* auth dependency, not scoped to the
+raster route alone - every authenticated route accepted it, putting the agent
+token in a URL (and so in access logs) far beyond the one route that actually
+needed it. Split into `verify_agent_token` (header-only, everywhere) and
+`verify_agent_token_or_query` (raster route only); `test_query_param_token_is_a_fallback_not_a_bypass`
+was replaced by `test_query_param_token_is_not_accepted_outside_the_raster_route`
+in test_ingest.py plus a new positive test on the raster route itself in
+test_generate.py. Also fixed in the same pass: `join()` was pulling the whole
+Job row (plan/result included) just to check one column, and wasn't
+lowercasing the incoming room id the way read_job/read_raster already do.
+
+Separately, found live: the worker's `--concurrency=2` let two `generate_design`
+renders hit the Legion's single 8GB GPU at once - two of four jobs in a test
+batch timed out from VRAM contention while the other two rendered fine.
+Dropped to `--concurrency=1`; renders are GPU-bound and must be serialized,
+tagging tasks are cheap enough to queue behind one.
+
+## D14 - Layout/graphic-design datasets: checked licenses, corrected an earlier recommendation (2026-08-30)
+
+The actual problem behind "the text doesn't look like a poster" isn't the
+renderer - `layout.py`'s `heuristic_layout` is one fixed template (background
+block, image column, a vertical stack of text boxes) applied identically to
+every prompt, with no learned sense of hierarchy or composition. That's the
+stand-in doc 03 always said would be replaced by the trained layout model;
+fixing the look-and-feel means giving that model something real to learn
+composition from before the designer's own (much smaller) dataset arrives.
+
+Checked every candidate's actual license page directly rather than a search
+summary, the same way D11 caught the Juggernaut XL restriction - this project
+may become paid work for the designer's own business (LBA), so a
+non-commercial-only dataset is not usable here regardless of fit:
+
+- **Crello** (`cyberagent/crello`) - CDLA-Permissive-2.0, commercial use
+  allowed. 23.3k real design layouts with per-element position, size,
+  rotation, opacity, RGBA colour, and full text typography - maps closely
+  onto this project's own Layer/Typography/Colour schema. Adopted as the
+  layout model's pretraining set.
+- **CGL-Dataset / CGL-Dataset-v2** - doc 03 previously recommended this as
+  "the closest public analogue" without a license check. It's CC BY-NC-SA
+  4.0, non-commercial - corrected in doc 03 §4. Its annotation schema is
+  still a useful reference for category design, just not usable as training
+  data; its ad copy is Chinese-language too, a weaker fit regardless.
+- **Poster100K** - CC BY-NC-SA 4.0 *and* the images are real copyrighted
+  movie/TV posters under a non-commercial-research-only fair-use disclaimer.
+  Doubly blocked, not adopted.
+- **PKU-PosterLayout** - gated behind an unpublished Release Agreement (sent
+  by emailing the authors); terms aren't public, so commercial-use fit can't
+  be verified without requesting it first. Not adopted on the paper alone.
+- **POSTAPosterArt** - license listed as "unknown" on its own dataset card,
+  and solves a narrower problem (stylized text effects) than the layout/
+  hierarchy gap this project actually has. Not adopted.
+- **Contra Labs' creative-ad-design-dataset** - CC-BY-4.0, genuinely clear,
+  but only 35 briefs/105 images - a preview/eval set, not training data.
+  Kept as a small benchmark for "does our output look as good as a
+  professional's for the same brief," not for training.
+
+Full writeup with the schema comparison in doc 03 §4.
