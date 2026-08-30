@@ -122,6 +122,55 @@ def test_sdxl_workflow_two_stage_refiner() -> None:
     assert graph["8"]["inputs"]["vae"] == ["20", 2]
 
 
+def test_sdxl_workflow_hires_fix_disabled_by_default() -> None:
+    graph = sdxl_workflow("x", 512, 512, None, seed=1, steps=20, base_checkpoint=BASE_CKPT)
+    assert "30" not in graph and "31" not in graph
+    assert graph["8"]["inputs"]["samples"] == ["3", 0]
+
+
+def test_sdxl_workflow_hires_fix_single_stage() -> None:
+    graph = sdxl_workflow(
+        "x",
+        512,
+        512,
+        None,
+        seed=1,
+        steps=20,
+        base_checkpoint=BASE_CKPT,
+        hires_scale=1.5,
+        hires_denoise=0.4,
+        hires_steps=10,
+    )
+    assert graph["30"]["class_type"] == "LatentUpscaleBy"
+    assert graph["30"]["inputs"]["samples"] == ["3", 0]
+    assert graph["30"]["inputs"]["scale_by"] == 1.5
+    assert graph["31"]["class_type"] == "KSampler"
+    assert graph["31"]["inputs"]["denoise"] == 0.4
+    assert graph["31"]["inputs"]["steps"] == 10
+    assert graph["31"]["inputs"]["model"] == ["4", 0]  # base model, no refiner in this graph
+    assert graph["31"]["inputs"]["latent_image"] == ["30", 0]
+    assert graph["8"]["inputs"]["samples"] == ["31", 0]
+    assert graph["8"]["inputs"]["vae"] == ["4", 2]
+
+
+def test_sdxl_workflow_hires_fix_after_refiner_uses_refiner_model() -> None:
+    graph = sdxl_workflow(
+        "x",
+        512,
+        512,
+        None,
+        seed=1,
+        steps=20,
+        base_checkpoint=BASE_CKPT,
+        refiner_checkpoint="r.safetensors",
+        hires_scale=1.5,
+    )
+    assert graph["30"]["inputs"]["samples"] == ["23", 0]  # the refiner's output, not the base's
+    assert graph["31"]["inputs"]["model"] == ["20", 0]  # refiner model, not base
+    assert graph["31"]["inputs"]["positive"] == ["21", 0]
+    assert graph["8"]["inputs"]["vae"] == ["20", 2]
+
+
 def test_sdxl_workflow_refiner_switch_is_clamped() -> None:
     graph = sdxl_workflow(
         "x",

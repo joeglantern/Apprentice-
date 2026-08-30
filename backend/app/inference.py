@@ -8,7 +8,9 @@ The graph is the standard two-stage SDXL pipeline (docs/06 D8): base model compo
 refiner model spends the last fraction of steps on fine detail, exactly how Stability AI
 designed SDXL 1.0 to be used. The refiner is optional - `sdxl_workflow` degrades to a
 single-stage graph when no refiner checkpoint is configured, so this keeps working on a
-Legion that hasn't downloaded it yet.
+Legion that hasn't downloaded it yet. An optional hires-fix pass (docs/06 D11) - upscale
+the finished latent, then a short low-denoise re-sample - adds further detail on top of
+either path; off by default (hires_scale=1.0) until verified not to strain the 8GB card.
 """
 
 from __future__ import annotations
@@ -59,10 +61,15 @@ def sdxl_workflow(
     refiner_switch: float = 0.8,
     negative: str = DEFAULT_NEGATIVE,
     cfg: float = 6.5,
+    hires_scale: float = 1.0,
+    hires_denoise: float = 0.4,
+    hires_steps: int = 12,
 ) -> dict[str, Any]:
     """Base-only graph when refiner_checkpoint is empty; base+refiner two-stage graph
     otherwise. refiner_switch is the fraction of steps the base model runs before
-    handing the latent to the refiner for the remaining, detail-focused steps."""
+    handing the latent to the refiner for the remaining, detail-focused steps.
+    hires_scale > 1.0 adds a further upscale + short low-denoise re-sample pass on top
+    of whichever path produced the final latent, using that same stage's model/prompts."""
     model_ref: list[Any] = ["4", 0]
     clip_ref: list[Any] = ["4", 1]
     graph: dict[str, Any] = {
@@ -105,65 +112,92 @@ def sdxl_workflow(
                 "latent_image": ["5", 0],
             },
         }
-        graph["8"] = {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}}
-        graph["9"] = {
-            "class_type": "SaveImage",
-            "inputs": {"filename_prefix": "ghost", "images": ["8", 0]},
+        final_latent: list[Any] = ["3", 0]
+        final_model, final_positive, final_negative = model_ref, ["6", 0], ["7", 0]
+        final_vae: list[Any] = ["4", 2]
+    else:
+        switch_step = max(1, min(steps - 1, round(steps * refiner_switch)))
+        graph["20"] = {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": refiner_checkpoint},
         }
-        return graph
+        graph["21"] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": prompt, "clip": ["20", 1]},
+        }
+        graph["22"] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": negative, "clip": ["20", 1]},
+        }
+        # Base composes steps [0, switch_step), leaves noise for the refiner to continue from.
+        graph["3"] = {
+            "class_type": "KSamplerAdvanced",
+            "inputs": {
+                "add_noise": "enable",
+                "noise_seed": seed,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "dpmpp_2m",
+                "scheduler": "karras",
+                "start_at_step": 0,
+                "end_at_step": switch_step,
+                "return_with_leftover_noise": "enable",
+                "model": model_ref,
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "latent_image": ["5", 0],
+            },
+        }
+        # Refiner finishes steps [switch_step, steps) - the fine-detail pass.
+        graph["23"] = {
+            "class_type": "KSamplerAdvanced",
+            "inputs": {
+                "add_noise": "disable",
+                "noise_seed": seed,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "dpmpp_2m",
+                "scheduler": "karras",
+                "start_at_step": switch_step,
+                "end_at_step": 10000,
+                "return_with_leftover_noise": "disable",
+                "model": ["20", 0],
+                "positive": ["21", 0],
+                "negative": ["22", 0],
+                "latent_image": ["3", 0],
+            },
+        }
+        final_latent = ["23", 0]
+        final_model, final_positive, final_negative = ["20", 0], ["21", 0], ["22", 0]
+        final_vae = ["20", 2]
 
-    switch_step = max(1, min(steps - 1, round(steps * refiner_switch)))
-    graph["20"] = {
-        "class_type": "CheckpointLoaderSimple",
-        "inputs": {"ckpt_name": refiner_checkpoint},
-    }
-    graph["21"] = {
-        "class_type": "CLIPTextEncode",
-        "inputs": {"text": prompt, "clip": ["20", 1]},
-    }
-    graph["22"] = {
-        "class_type": "CLIPTextEncode",
-        "inputs": {"text": negative, "clip": ["20", 1]},
-    }
-    # Base composes steps [0, switch_step), leaves noise for the refiner to continue from.
-    graph["3"] = {
-        "class_type": "KSamplerAdvanced",
-        "inputs": {
-            "add_noise": "enable",
-            "noise_seed": seed,
-            "steps": steps,
-            "cfg": cfg,
-            "sampler_name": "dpmpp_2m",
-            "scheduler": "karras",
-            "start_at_step": 0,
-            "end_at_step": switch_step,
-            "return_with_leftover_noise": "enable",
-            "model": model_ref,
-            "positive": ["6", 0],
-            "negative": ["7", 0],
-            "latent_image": ["5", 0],
-        },
-    }
-    # Refiner finishes steps [switch_step, steps) - the fine-detail pass.
-    graph["23"] = {
-        "class_type": "KSamplerAdvanced",
-        "inputs": {
-            "add_noise": "disable",
-            "noise_seed": seed,
-            "steps": steps,
-            "cfg": cfg,
-            "sampler_name": "dpmpp_2m",
-            "scheduler": "karras",
-            "start_at_step": switch_step,
-            "end_at_step": 10000,
-            "return_with_leftover_noise": "disable",
-            "model": ["20", 0],
-            "positive": ["21", 0],
-            "negative": ["22", 0],
-            "latent_image": ["3", 0],
-        },
-    }
-    graph["8"] = {"class_type": "VAEDecode", "inputs": {"samples": ["23", 0], "vae": ["20", 2]}}
+    if hires_scale > 1.0:
+        graph["30"] = {
+            "class_type": "LatentUpscaleBy",
+            "inputs": {
+                "samples": final_latent,
+                "upscale_method": "bislerp",
+                "scale_by": hires_scale,
+            },
+        }
+        graph["31"] = {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": seed,
+                "steps": hires_steps,
+                "cfg": cfg,
+                "sampler_name": "dpmpp_2m",
+                "scheduler": "karras",
+                "denoise": hires_denoise,
+                "model": final_model,
+                "positive": final_positive,
+                "negative": final_negative,
+                "latent_image": ["30", 0],
+            },
+        }
+        final_latent = ["31", 0]
+
+    graph["8"] = {"class_type": "VAEDecode", "inputs": {"samples": final_latent, "vae": final_vae}}
     graph["9"] = {
         "class_type": "SaveImage",
         "inputs": {"filename_prefix": "ghost", "images": ["8", 0]},
@@ -183,6 +217,9 @@ class ComfyRenderer:
         base_checkpoint: str = "sd_xl_base_1.0.safetensors",
         refiner_checkpoint: str = "",
         refiner_switch: float = 0.8,
+        hires_scale: float = 1.0,
+        hires_denoise: float = 0.4,
+        hires_steps: int = 12,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.name = name
@@ -191,6 +228,9 @@ class ComfyRenderer:
         self.base_checkpoint = base_checkpoint
         self.refiner_checkpoint = refiner_checkpoint or None
         self.refiner_switch = refiner_switch
+        self.hires_scale = hires_scale
+        self.hires_denoise = hires_denoise
+        self.hires_steps = hires_steps
 
     def reachable(self) -> bool:
         try:
@@ -220,6 +260,9 @@ class ComfyRenderer:
             base_checkpoint=self.base_checkpoint,
             refiner_checkpoint=self.refiner_checkpoint,
             refiner_switch=self.refiner_switch,
+            hires_scale=self.hires_scale,
+            hires_denoise=self.hires_denoise,
+            hires_steps=self.hires_steps,
         )
         with httpx.Client(base_url=self.base_url, timeout=30.0) as client:
             r = client.post("/prompt", json={"prompt": graph, "client_id": client_id})
@@ -269,6 +312,9 @@ def pick_renderer(settings: Settings) -> Renderer:
             base_checkpoint=settings.sdxl_base_checkpoint,
             refiner_checkpoint=settings.sdxl_refiner_checkpoint,
             refiner_switch=settings.sdxl_refiner_switch,
+            hires_scale=settings.sdxl_hires_scale,
+            hires_denoise=settings.sdxl_hires_denoise,
+            hires_steps=settings.sdxl_hires_steps,
         )
         if renderer.reachable():
             return renderer

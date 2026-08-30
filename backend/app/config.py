@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     sdxl_refiner_checkpoint: str = ""
     sdxl_refiner_switch: float = 0.8
 
+    # Optional hires-fix pass (docs/06 D11): upscale the finished latent, then a short
+    # low-denoise re-sample for extra detail. 1.0 = disabled, the default, until it's
+    # been verified not to strain the 8GB card - a strict addition on top of D8.
+    sdxl_hires_scale: float = 1.0
+    sdxl_hires_denoise: float = 0.4
+    sdxl_hires_steps: int = 12
+
     def agent_token_map(self) -> dict[str, str]:
         """token -> agent_id"""
         out: dict[str, str] = {}
