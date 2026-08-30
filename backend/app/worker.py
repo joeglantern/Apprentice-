@@ -124,6 +124,16 @@ def generate_design(self: Any, job_id: str) -> str:
         prompt, width, height, aesthetic = job.prompt, job.width, job.height, job.aesthetic_version
         kind = job.kind
         brand = job.brand
+        seeded_plan = job.plan if job.revise else None
+        reuse_rasters = None
+        if job.revise and not job.revise.get("rerender_photo"):
+            source = session.get(Job, job.revise.get("source_job_id"))
+            if source is not None and source.result:
+                reuse_rasters = {
+                    layer["name"]: layer["raster_key"]
+                    for layer in source.result.get("layers", [])
+                    if layer.get("type") == "image" and layer.get("raster_key")
+                }
 
     try:
         plan, result = run_generation(
@@ -134,6 +144,8 @@ def generate_design(self: Any, job_id: str) -> str:
             aesthetic_version=aesthetic,
             kind=kind,
             brand=brand,
+            seeded_plan=seeded_plan,
+            reuse_rasters=reuse_rasters,
             lora_file=lora_file,
             profile=profile,
             settings=settings,

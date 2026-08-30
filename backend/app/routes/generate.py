@@ -112,6 +112,62 @@ async def start_generation(
     return GenerateAccepted(job_id=job.job_id, status="queued")
 
 
+class ReviseRequest(BaseModel):
+    """Tweak an existing finished poster without replanning (docs/06 D20): change the
+    composition or typeface, or ask for a fresh photo, and get a new job."""
+
+    composition: Literal["anchor", "centered", "split"] | None = None
+    typeface: Literal["inter", "bebas", "playfair", "grotesk"] | None = None
+    rerender_photo: bool = False
+
+
+@router.post(
+    "/generate/{job_id}/revise",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=GenerateAccepted,
+)
+async def revise_job(
+    job_id: JobId,
+    body: ReviseRequest,
+    session: AsyncSession = Depends(get_session),
+    agent_id: str = Depends(verify_agent_token),
+) -> GenerateAccepted:
+    source = await session.get(Job, job_id.lower())
+    if source is None or source.requested_by != agent_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if source.kind != "poster" or not source.plan or source.status != "done":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only a finished poster can be revised")
+    plan = dict(source.plan)
+    if body.composition:
+        plan["composition"] = body.composition
+    if body.typeface:
+        plan["typeface"] = body.typeface
+    job = Job(
+        job_id=str(uuid.uuid4()),
+        prompt=source.prompt,
+        aesthetic_version=source.aesthetic_version,
+        kind="poster",
+        brand=source.brand,
+        plan=plan,
+        revise={"source_job_id": source.job_id, "rerender_photo": body.rerender_photo},
+        width=source.width,
+        height=source.height,
+        requested_by=agent_id,
+    )
+    session.add(job)
+    await session.commit()
+    try:
+        await run_in_threadpool(enqueue_generation, job.job_id)
+    except Exception:  # noqa: BLE001
+        log.exception("could not enqueue revision %s", job.job_id)
+        job.status = "error"
+        job.error = "Could not queue the job; try again"
+        session.add(job)
+        await session.commit()
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, job.error) from None
+    return GenerateAccepted(job_id=job.job_id, status="queued")
+
+
 @router.get("/generate/{job_id}", response_model=JobRead)
 async def read_job(
     job_id: JobId,

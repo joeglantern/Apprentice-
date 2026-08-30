@@ -58,6 +58,10 @@ class Job(SQLModel, table=True):
     # Optional brand kit (docs/06 D19): {name, palette, typeface}, validated by the
     # director's BrandKit model at plan time.
     brand: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Revision of an earlier job (docs/06 D20): {source_job_id, rerender_photo}. When
+    # set, plan is pre-seeded from the source with overrides and the director is
+    # skipped; without rerender_photo the source rendered photo is reused.
+    revise: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     status: str = Field(default="queued", index=True, max_length=20)
     plan: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))

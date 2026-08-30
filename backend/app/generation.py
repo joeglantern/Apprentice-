@@ -48,6 +48,8 @@ def run_generation(
     progress: Progress,
     kind: str = "poster",
     brand: dict[str, Any] | None = None,
+    seeded_plan: dict[str, Any] | None = None,
+    reuse_rasters: dict[str, str] | None = None,
 ) -> tuple[DesignPlan, dict[str, Any]]:
     if kind in ("image", "logo"):
         # No director, no layout: one full-canvas render. A logo names its brand in
@@ -56,6 +58,12 @@ def run_generation(
         # gibberish. Without quotes, or without Flux, the mark is rendered wordless.
         plan, layout = direct_plan(prompt, width, height, kind)
         progress("layout", {"message": "Single image, no layout"})
+    elif seeded_plan is not None:
+        # A revision: the plan was already made (and tweaked); no director call.
+        plan = DesignPlan.model_validate(seeded_plan)
+        plan.canvas = {"width": width, "height": height}
+        progress("layout", {"message": "Recomposing the existing plan"})
+        layout = heuristic_layout(plan, profile)
     else:
         progress("planning", {"message": "Thinking about the brief"})
         try:
@@ -72,6 +80,11 @@ def run_generation(
         {"message": f"Rendering {len(image_layers)} image area(s) with {renderer.name}"},
     )
     for i, layer in enumerate(image_layers, 1):
+        if reuse_rasters and layer.get("name") in reuse_rasters:
+            layer["raster_key"] = reuse_rasters[layer["name"]]
+            layer["raster_url"] = f"/generate/{job_id}/raster/{layer['layer_id']}"
+            progress("render", {"message": f"Reusing photo {i}/{len(image_layers)}"})
+            continue
         bbox = layer["bbox"]
         w, h = _sdxl_size(bbox["width"], bbox["height"])
         image_prompt = layer.get("image_prompt", prompt)

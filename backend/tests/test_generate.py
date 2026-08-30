@@ -777,3 +777,82 @@ def test_hand_detail_chains_after_the_face_pass() -> None:
         "x", 512, 512, None, seed=1, steps=20, base_checkpoint=BASE_CKPT, face_detail=True
     )
     assert "42" not in face_only and face_only["9"]["inputs"]["images"] == ["41", 0]
+
+
+async def test_revise_reuses_the_plan_and_photo(
+    client: AsyncClient,
+    session_maker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.routes.generate as gen_mod
+
+    monkeypatch.setattr(gen_mod, "enqueue_generation", lambda job_id: None)
+    r = await client.post("/generate", json={"prompt": "Concert poster"}, headers=AUTH_A)
+    source_id = r.json()["job_id"]
+    # Not done yet: revision refused.
+    r = await client.post(f"/generate/{source_id}/revise", json={}, headers=AUTH_A)
+    assert r.status_code == 409
+
+    plan = heuristic_plan("Concert poster", 1080, 1350, None).model_dump()
+    async with session_maker() as session:
+        from app.models import Job
+
+        job = await session.get(Job, source_id)
+        job.status = "done"
+        job.plan = plan
+        job.result = {
+            "layers": [
+                {
+                    "name": "background photograph",
+                    "type": "image",
+                    "raster_key": "renders/x/L01.png",
+                }
+            ]
+        }
+        session.add(job)
+        await session.commit()
+
+    r = await client.post(
+        f"/generate/{source_id}/revise",
+        json={"composition": "split", "typeface": "bebas"},
+        headers=AUTH_A,
+    )
+    assert r.status_code == 202
+    new_id = r.json()["job_id"]
+    async with session_maker() as session:
+        from app.models import Job
+
+        new = await session.get(Job, new_id)
+        assert new.plan["composition"] == "split" and new.plan["typeface"] == "bebas"
+        assert new.revise == {"source_job_id": source_id, "rerender_photo": False}
+        assert new.prompt == "Concert poster"
+    # Another agent may not revise it.
+    r = await client.post(f"/generate/{source_id}/revise", json={}, headers=AUTH_B)
+    assert r.status_code == 404
+
+
+def test_run_generation_seeded_plan_skips_director_and_reuses_raster(
+    storage: FakeStorage,
+) -> None:
+    plan = heuristic_plan("Concert poster", 1080, 1350, None)
+    plan.composition = "split"
+    renderer = FakeRenderer()
+    got_plan, result = run_generation(
+        job_id="66666666-6666-4666-8666-666666666666",
+        prompt="Concert poster",
+        width=1080,
+        height=1350,
+        aesthetic_version="baseline",
+        lora_file=None,
+        profile=None,
+        settings=Settings(database_url="sqlite://"),
+        renderer=renderer,
+        storage=SyncStorage(storage),
+        progress=lambda stage, data: None,
+        seeded_plan=plan.model_dump(),
+        reuse_rasters={"background photograph": "renders/old/L01.png"},
+    )
+    assert got_plan.composition == "split" and got_plan.source == plan.source
+    image = next(layer for layer in result["layers"] if layer["type"] == "image")
+    assert image["raster_key"] == "renders/old/L01.png"
+    assert renderer.calls == []  # no new render, no director
