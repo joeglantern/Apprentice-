@@ -708,3 +708,12 @@ def test_badge_is_normalised_and_centered_landscape_keeps_its_headline() -> None
     assert "headline" in by_name and by_name["headline"]["align"] == "center"
     assert by_name["scrim"]["bbox"]["width"] == 1600
     assert 0 < by_name["headline"]["bbox"]["x"] < 800
+
+
+def test_wordmark_is_dropped_when_the_headline_already_names_it() -> None:
+    plan = heuristic_plan("Poster", 1080, 1350, None)
+    plan.elements = [e for e in plan.elements if e.role not in ("headline",)]
+    plan.elements.append(PlanElement(role="headline", content="Furaha Homes", priority=1))
+    plan.elements.append(PlanElement(role="logo", content="Furaha Homes", priority=5))
+    names = [layer["name"] for layer in heuristic_layout(plan, None)["layers"]]
+    assert "wordmark" not in names

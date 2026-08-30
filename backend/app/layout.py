@@ -412,8 +412,8 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
 
     # 3. Wordmark top-left, from a logo role if the director gave one.
     logos = [e for e in ordered if e.role == "logo"]
-    captions = [e.content.strip().lower() for e in ordered if e.role == "caption"]
-    if logos and any(_wordmark(logos[0].content).lower() in c for c in captions):
+    said_already = [e.content.strip().lower() for e in ordered if e.role in ("caption", "headline")]
+    if logos and any(_wordmark(logos[0].content).lower() in c for c in said_already):
         logos = []  # the eyebrow already says it; a second copy at the top is noise
     if logos:
         size = _text_size("logo", width, headline_ratio)
