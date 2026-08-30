@@ -8,8 +8,10 @@ curates them, fine-tunes the two models, pushes checkpoints back. See
 ```bash
 python -m venv .venv && .venv/Scripts/activate      # PowerShell: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-# CUDA torch first (pick the cu12x wheel from pytorch.org), then the rest:
-pip install torch --index-url https://download.pytorch.org/whl/cu124
+# CUDA torch first. The RTX 5060 is Blackwell (compute capability sm_120), which cu124
+# wheels do not carry kernels for (torch.cuda.is_available() lies and returns True, but
+# any real op fails at runtime). Use the cu128 index, not cu124 - confirmed on this GPU:
+pip install torch --index-url https://download.pytorch.org/whl/cu128
 pip install -e ".[train]"
 git clone https://github.com/kohya-ss/sd-scripts.git ../sd-scripts   # style LoRA trainer
 python scripts/check_gpu.py
