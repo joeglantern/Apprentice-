@@ -1,0 +1,2 @@
+@reboot /usr/bin/env python3 /home/liban/ghost-agent/backend/tools/legion_relay.py --bind-host 172.21.0.1 --map 18434:127.0.0.1:18434 --map 18188:127.0.0.1:18188 >> /tmp/legion_relay.log 2>&1 &
+* * * * * pgrep -f legion_relay.py >/dev/null || (/usr/bin/env python3 /home/liban/ghost-agent/backend/tools/legion_relay.py --bind-host 172.21.0.1 --map 18434:127.0.0.1:18434 --map 18188:127.0.0.1:18188 >> /tmp/legion_relay.log 2>&1 &)

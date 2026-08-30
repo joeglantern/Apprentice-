@@ -152,3 +152,43 @@ designer's own visual language. What's free and worth doing now:
   paying before there is designer data to fine-tune on afterwards); a
   designer feedback loop on generated output (valuable, but needs the app,
   M5, to exist first).
+
+## D9 - Legion tunnel: no-root Docker bridge, cron watchdog (2026-08-30)
+
+Getting the VPS's Docker containers talking to services on the Legion (behind
+home NAT/CGNAT, no public IP) needed working around two constraints on the
+shared VPS: no passwordless sudo, and not wanting to touch system-wide sshd
+config or firewall for other tenants' sake.
+
+- **Direction**: reverse SSH tunnel, Legion dials out (`-R`) to the VPS -
+  the only direction that works given the Legion has no public IP. Dedicated
+  keypair (`legion_vps`), added to the VPS's `authorized_keys`, separate from
+  any other key on that machine.
+- **Ports**: `-R 18434:127.0.0.1:11434` (Ollama) and `-R 18188:127.0.0.1:8188`
+  (ComfyUI), bound to the VPS's own loopback only (`GatewayPorts` left at its
+  default `no` - deliberately not changed, since that's a system-wide sshd
+  setting on a box other projects share).
+- **Bridging loopback to Docker**: `backend/tools/legion_relay.py`, a small
+  stdlib-only asyncio TCP relay, no root required (binding an already-
+  configured local IP on a port >=1024 needs no privilege). It listens on
+  `172.21.0.1` (the `ghostagent_default` Docker network's own gateway IP,
+  which has no route from the public internet) and forwards to the
+  loopback ports the tunnel bound. Containers on that network reach the
+  Legion via `172.21.0.1:18434` / `:18188`.
+- **The one thing that did need sudo**: UFW on the VPS defaults to deny
+  incoming, so traffic from the Docker bridge subnet to those two ports was
+  blocked even though the relay was listening. Fixed with two narrowly
+  scoped rules the operator ran herself (`ufw allow from 172.21.0.0/16 to
+  any port {18434,18188} proto tcp`) - open only to this project's own
+  Docker network, not "Anywhere" like several other rules already on that
+  box.
+- **Resilience**: `backend/tools/legion_relay.crontab` - a per-minute
+  watchdog (`pgrep ... || restart`) plus `@reboot`, installed with a plain
+  user `crontab`, no root needed. On the Legion side, the tunnel itself
+  needs the operator to set up a Task Scheduler task (`ssh -N ...` in an
+  always-restart loop, trigger "at log on") since standing up a persistent
+  outbound tunnel is a decision that has to come from her directly, not
+  from a peer session or from me.
+
+Env vars set from this: `LOCAL_DIRECTOR_URL=http://172.21.0.1:18434`,
+`LEGION_INFERENCE_URL=http://172.21.0.1:18188` in the VPS's `backend/.env`.
