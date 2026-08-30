@@ -238,3 +238,29 @@ Net effect: stayed on official `sd_xl_base_1.0.safetensors` (Stability AI's own
 OpenRAIL++ licence, zero restriction found) plus the existing refiner. Added
 instead: a hires-fix second pass (upscale + light re-render), same category of
 technique as the refiner, no new licence questions, no new dependencies.
+
+## D12 - Hires-fix tested live, not adopted (2026-08-30)
+
+Tested the optional hires-fix pass (D11) for real on the Legion, at 1.5x scale,
+0.4 denoise, 12 steps.
+
+VRAM (measured by the Legion, nvidia-smi): peaked at 7535 MiB used out of 8151
+total - only ~365 MiB free at the tightest point of the three-pass run (base,
+refiner, hires). It completed without an OOM this time, but that is a thin
+enough margin that any concurrent GPU load (the desktop itself, a browser tab)
+could push it over on a different run.
+
+More importantly: the output was worse, not better. The same jazz-festival
+prompt that had rendered cleanly through base+refiner alone came back with
+visible streaky, smeared artefacting on trees and the figure once the hires
+pass ran on top - not the subtle detail sharpening a hires-fix is supposed to
+add. Whether that is the denoise value, the upscale method, or genuine
+incompatibility with this graph was not root-caused; not worth the VRAM risk
+to find out for a result that already looks worse.
+
+Decision: left `SDXL_HIRES_SCALE=1.0` (disabled) on the VPS - back to base+
+refiner only, which is the version that has consistently produced the good
+results throughout this session. The code stays in the repo, off by default,
+in case a lower denoise value or a different upscale method is worth trying
+later; not a priority right now given base+refiner alone is already working
+well.
