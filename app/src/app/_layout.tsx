@@ -18,6 +18,7 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="index" options={{ title: "Ghost Agent" }} />
+          <Stack.Screen name="history" options={{ title: "History" }} />
           <Stack.Screen name="canvas" options={{ title: "Preview" }} />
         </Stack>
       </View>

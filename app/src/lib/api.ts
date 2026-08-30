@@ -51,6 +51,11 @@ export async function getJob(jobId: string): Promise<Job> {
   return unwrap<Job>(res);
 }
 
+export async function listJobs(limit = 50): Promise<Job[]> {
+  const res = await fetch(`${BASE_URL}/generate?limit=${limit}`, { headers: headers() });
+  return unwrap<Job[]>(res);
+}
+
 export async function listAesthetics(): Promise<Aesthetic[]> {
   const res = await fetch(`${BASE_URL}/aesthetics`, { headers: headers() });
   return unwrap<Aesthetic[]>(res);

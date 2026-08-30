@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AestheticSelector } from "@/components/AestheticSelector";
@@ -31,7 +31,12 @@ export default function PromptScreen() {
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={styles.title}>Ghost Agent</Text>
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>Ghost Agent</Text>
+            <Pressable onPress={() => router.push("/history")}>
+              <Text style={styles.historyLink}>History</Text>
+            </Pressable>
+          </View>
           <Text style={styles.subtitle}>
             Describe the piece. The director plans it, the renderer paints it, in the
             designer&apos;s signature style once one exists.
@@ -58,7 +63,9 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0B0B0F" },
   container: { padding: 20, gap: 20 },
   header: { gap: 8 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   title: { color: "#F4F5F7", fontSize: 28, fontWeight: "700" },
+  historyLink: { color: "#8A8F98", fontSize: 14 },
   subtitle: { color: "#8A8F98", fontSize: 14, lineHeight: 20 },
   error: { color: "#E5484D", fontSize: 13 },
 });
