@@ -54,6 +54,9 @@ export interface DesignPlan {
   canvas: { width: number; height: number };
   mood: string[];
   palette_intent: string[];
+  typeface?: "inter" | "bebas" | "playfair" | "grotesk";
+  composition?: "anchor" | "centered" | "split";
+  date_badge?: string | null;
   elements: DesignPlanElement[];
   source: "director" | "heuristic";
 }

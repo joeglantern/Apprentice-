@@ -72,6 +72,23 @@ export function rasterUrl(jobId: string, layerId: string): string {
   return AGENT_TOKEN ? `${url}?token=${encodeURIComponent(AGENT_TOKEN)}` : url;
 }
 
+/** Tweak a finished poster without replanning; resolves to the new job. */
+export async function reviseJob(
+  jobId: string,
+  changes: {
+    composition?: "anchor" | "centered" | "split";
+    typeface?: "inter" | "bebas" | "playfair" | "grotesk";
+    rerender_photo?: boolean;
+  },
+): Promise<GenerateAccepted> {
+  const res = await fetch(`${BASE_URL}/generate/${jobId}/revise`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(changes),
+  });
+  return unwrap<GenerateAccepted>(res);
+}
+
 export function socketBaseUrl(): string {
   return BASE_URL ?? "";
 }
