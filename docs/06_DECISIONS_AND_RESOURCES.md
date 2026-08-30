@@ -399,3 +399,29 @@ strings; bold is per character. One shard (500 MB) yields 626 usable layouts;
 the full train split is 31 shards, about 15 GB, which the Legion cannot hold until
 the 70 GB OneDrive cache is dealt with (C: was at 6.6 GB free; clearing the npm
 cache alone recovered 17.8 GB).
+
+## D16 - Compositions, date badges, and image/logo kinds (2026-08-30)
+
+Operator asked for posters that differ from each other, mixed faces, colours and
+sizes, date badges, icons, and for standalone photographs and logos alongside posters.
+
+- **Three compositions**, chosen by the director per brief: `anchor` (type
+  bottom-left over the photo), `centered` (type centred low, longer fade), `split`
+  (a solid palette panel carries the type, the photo fills the rest, nothing sits on
+  the photo). The director is told not to default to one.
+- **Date badge**: a round accent disc top-right with the day large and the month
+  small, only for dated events. First non-rectangular shape in the layer schema
+  (`shape: "ellipse"`), drawn by the app and the compositor.
+- **Mixed colour**: eyebrow and subhead take the accent; headline and details the
+  foreground. The accent is now the most saturated mid-tone in the palette rather
+  than the brightest colour, which on the default palette was white.
+- **Kinds**: `poster` (director, layout, render), `image` (one photograph, no
+  director), `logo` (one flat mark on white). A logo brief that names the brand in
+  quotes passes it as `scene_text`, so the Flux path sets the real letters. New
+  `jobs.kind` column, migration 0004. The prompt screen gets a plain three-way
+  selector; Claude Design owns the look.
+- **Icons**: not yet. The right free set is Tabler Icons (MIT); it needs an `icon`
+  layer type and an SVG path table in the app. Next.
+- **Photoreal humans and animals**: SDXL base is adequate; the free upgrade to
+  check next is a photoreal SDXL fine-tune (RealVisXL) - license to be read
+  directly before adopting, as with D11.
