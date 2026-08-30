@@ -143,4 +143,5 @@ def test_design_plan_default_palette_matches_layout() -> None:
     plan = heuristic_plan("x", 1600, 900, None)
     assert plan.palette_intent == DEFAULT_PALETTE
     layout = heuristic_layout(plan, None)
-    assert layout["layers"][0]["color"]["hex"] == DEFAULT_PALETTE[1]
+    scrim = next(layer for layer in layout["layers"] if layer["name"] == "scrim")
+    assert scrim["color"]["hex"] == DEFAULT_PALETTE[0]  # the darkest default colour

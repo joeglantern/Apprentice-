@@ -89,10 +89,20 @@ You are given the designer's style profile, derived only from work he opted in t
 Treat it as evidence of his taste: favour its palette, its alignment habits, its typical
 number of elements, and its margins. Do not invent a different aesthetic.
 
-Write copy that is specific to the brief, never placeholder text. Keep headlines short.
-Give every image element a concrete image_prompt the renderer can paint. Prefer fewer,
-stronger elements over many weak ones. The rationale should read like a designer
-explaining choices to a collaborator, in plain language.
+Write copy that is specific to the brief, never placeholder text. Structure the piece
+the way a printed poster is structured, using these roles:
+- caption: one short eyebrow line above the headline (event type, date, or brand line).
+- headline: at most five words. This is the biggest thing on the poster.
+- subhead: one supporting line.
+- body: the concrete details a reader needs - date, time, venue, price, phone, handle -
+  as short lines separated by newlines, not paragraphs.
+- cta: two or three words, imperative.
+- logo: the brand or business name only, as it would appear as a wordmark.
+- image: exactly one. Its image_prompt describes a photographic background for the whole
+  poster - the subject, setting, light and mood - with clean negative space. It must not
+  ask for any text, lettering, logos or signage; type is added on top afterwards.
+Prefer fewer, stronger elements over many weak ones. The rationale should read like a
+designer explaining choices to a collaborator, in plain language.
 
 Respond with only the JSON object described by the schema, no other text."""
 
@@ -122,15 +132,16 @@ def heuristic_plan(
         mood=["direct", "clean", "confident"],
         palette_intent=palette,
         elements=[
-            PlanElement(role="shape", content="background colour block", priority=4),
             PlanElement(
                 role="image",
-                content="hero visual",
+                content="background photograph",
                 priority=2,
-                image_prompt=f"{brief}, in the designer's signature style",
+                image_prompt=brief.strip(),
             ),
+            PlanElement(role="caption", content="Coming soon", priority=4),
             PlanElement(role="headline", content=headline, priority=1),
             PlanElement(role="subhead", content=brief.strip()[:120], priority=3),
+            PlanElement(role="cta", content="Learn more", priority=5),
         ],
         source="heuristic",
     )

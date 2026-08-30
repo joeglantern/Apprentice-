@@ -1,7 +1,25 @@
-import Svg, { Image as SvgImage, Rect, Text as SvgText } from "react-native-svg";
+import Svg, { G, Image as SvgImage, Rect, Text as SvgText, TSpan } from "react-native-svg";
 
 import { rasterUrl } from "@/lib/api";
 import type { Layer } from "@/lib/types";
+
+/** Greedy word wrap on a character budget. Explicit newlines always break. */
+function wrap(text: string, charsPerLine: number): string[] {
+  const out: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let line = "";
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      const trial = line ? `${line} ${word}` : word;
+      if (trial.length <= charsPerLine || !line) line = trial;
+      else {
+        out.push(line);
+        line = word;
+      }
+    }
+    out.push(line);
+  }
+  return out;
+}
 
 interface Props {
   jobId: string;
@@ -70,21 +88,46 @@ export function CanvasPreview({ jobId, layers, canvasWidth, canvasHeight }: Prop
         }
         if (layer.type === "text" && layer.text) {
           const size = layer.typography?.font_size ?? 24;
+          const lineHeight = (layer.typography?.line_height ?? 1.15) * size;
+          const anchor =
+            layer.align === "center" ? "middle" : layer.align === "right" ? "end" : "start";
+          const anchorX = layer.align === "center" ? x + width / 2 : layer.align === "right" ? x + width : x;
+          // Same wrap estimate layout.py used to size the box, so lines land inside it.
+          const lines = wrap(layer.text, Math.max(1, Math.floor(width / (size * 0.52))));
+          const isButton = !!layer.background;
+          const padX = isButton ? size * 0.9 : 0;
           return (
-            <SvgText
-              key={layer.layer_id}
-              x={x}
-              y={y + size}
-              fontSize={size}
-              fontWeight={layer.typography?.font_weight ?? 400}
-              fontFamily={layer.typography?.font_family ?? "System"}
-              fill={layer.color?.hex ?? "#111111"}
-              textAnchor={
-                layer.align === "center" ? "middle" : layer.align === "right" ? "end" : "start"
-              }
-            >
-              {layer.text}
-            </SvgText>
+            <G key={layer.layer_id}>
+              {isButton && (
+                <Rect
+                  x={x}
+                  y={y}
+                  width={width}
+                  height={height}
+                  rx={size * 0.25}
+                  fill={layer.background!.hex}
+                  fillOpacity={layer.background!.opacity}
+                />
+              )}
+              <SvgText
+                fontSize={size}
+                fontWeight={layer.typography?.font_weight ?? 400}
+                fontFamily={layer.typography?.font_family ?? "System"}
+                letterSpacing={layer.typography?.letter_spacing ?? 0}
+                fill={layer.color?.hex ?? "#111111"}
+                textAnchor={isButton ? "start" : anchor}
+              >
+                {lines.map((line, i) => (
+                  <TSpan
+                    key={i}
+                    x={isButton ? x + padX : anchorX}
+                    y={y + (isButton ? (height - size) / 2 : 0) + size * 0.9 + i * lineHeight}
+                  >
+                    {line}
+                  </TSpan>
+                ))}
+              </SvgText>
+            </G>
           );
         }
         return null;

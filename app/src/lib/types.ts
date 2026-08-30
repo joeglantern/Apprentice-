@@ -18,8 +18,8 @@ export interface Typography {
   font_family: string;
   font_size: number;
   font_weight: number;
-  letter_spacing?: number;
-  line_height?: number;
+  letter_spacing?: number; // px, as layout.py emits it
+  line_height?: number; // multiplier of font_size
 }
 
 export interface Layer {

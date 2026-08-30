@@ -35,45 +35,81 @@ def test_heuristic_plan_and_layout_follow_profile() -> None:
     assert plan.source == "heuristic"
     assert plan.palette_intent[0] in {"#1A1A1A", "#F2A623"}
     layout = heuristic_layout(plan, PROFILE)
-    kinds = [layer["type"] for layer in layout["layers"]]
-    assert kinds[0] == "shape" and "image" in kinds and kinds.count("text") == 2
-    ids = [layer["layer_id"] for layer in layout["layers"]]
-    assert ids == sorted(ids) and [layer["z_index"] for layer in layout["layers"]] == list(
-        range(len(ids))
-    )
-    headline = next(layer for layer in layout["layers"] if layer["name"] == "headline")
-    assert headline["typography"]["font_size"] == 64  # 0.04 of 1600 from the profile
+    layers = layout["layers"]
+    kinds = [layer["type"] for layer in layers]
+    # Poster recipe: full-bleed image first, scrim over the text zone, then type.
+    assert kinds[0] == "image" and layers[0]["bbox"] == {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 900,
+    }
+    assert "no text" in layers[0]["image_prompt"]
+    scrim = next(layer for layer in layers if layer["name"] == "scrim")
+    assert 0 < scrim["color"]["opacity"] < 1
+    names = [layer["name"] for layer in layers]
+    assert {"caption", "headline", "subhead", "cta", "accent bar"} <= set(names)
+    ids = [layer["layer_id"] for layer in layers]
+    assert ids == sorted(ids) and [layer["z_index"] for layer in layers] == list(range(len(ids)))
+    headline = next(layer for layer in layers if layer["name"] == "headline")
+    # The profile's 0.04 is below the poster floor of 0.075, so the floor wins.
+    assert headline["typography"]["font_size"] == 120
+    assert headline["typography"]["font_weight"] == 800
     assert headline["align"] == "left"
-    assert headline["bbox"]["x"] == int(1600 * PROFILE["margin_ratio"])
-    for layer in layout["layers"]:
+    assert headline["bbox"]["x"] == int(900 * PROFILE["margin_ratio"])
+    caption = next(layer for layer in layers if layer["name"] == "caption")
+    assert (
+        caption["text"] == caption["text"].upper() and caption["typography"]["letter_spacing"] > 0
+    )
+    cta = next(layer for layer in layers if layer["name"] == "cta")
+    assert "background" in cta and cta["bbox"]["width"] < headline["bbox"]["width"]
+    # Stack reads top to bottom in the order a poster does.
+    ys = [
+        next(layer for layer in layers if layer["name"] == n)["bbox"]["y"]
+        for n in ("caption", "headline", "subhead", "cta")
+    ]
+    assert ys == sorted(ys)
+    for layer in layers:
         b = layer["bbox"]
         assert 0 <= b["x"] and b["x"] + b["width"] <= 1600
         assert 0 <= b["y"] and b["y"] + b["height"] <= 900
 
 
-def test_layout_portrait_puts_image_on_top() -> None:
+def test_layout_portrait_puts_text_zone_at_the_bottom() -> None:
     plan = heuristic_plan("Album cover", 900, 1600, None)
     layout = heuristic_layout(plan, None)
-    image = next(layer for layer in layout["layers"] if layer["type"] == "image")
+    scrim = next(layer for layer in layout["layers"] if layer["name"] == "scrim")
     headline = next(layer for layer in layout["layers"] if layer["name"] == "headline")
-    assert image["bbox"]["y"] < headline["bbox"]["y"]
+    assert scrim["bbox"]["width"] == 900 and scrim["bbox"]["y"] > 0
+    assert headline["bbox"]["y"] > 1600 * 0.42
+
+
+def test_layout_logo_becomes_a_wordmark_not_the_word_logo() -> None:
+    plan = heuristic_plan("Poster", 1600, 900, None)
+    plan.elements.append(PlanElement(role="logo", content="Savanna Grill logo", priority=5))
+    layout = heuristic_layout(plan, None)
+    mark = next(layer for layer in layout["layers"] if layer["name"] == "wordmark")
+    assert mark["text"] == "SAVANNA GRILL"
+    assert mark["bbox"]["y"] < 100
 
 
 def test_layout_text_stays_readable_on_a_low_contrast_palette() -> None:
     """Regression: a director-picked palette of two close warm tones (real case, e.g.
     #EB7F35 on #F2AC6F) must not produce near-invisible text."""
-    from app.layout import _contrast_ratio
+    from app.layout import _blend, _contrast_ratio
 
     plan = heuristic_plan("Concert poster", 1080, 1350, None)
     plan.palette_intent = ["#EB7F35", "#F2AC6F"]
     layout = heuristic_layout(plan, None)
-    bg = next(layer for layer in layout["layers"] if layer["type"] == "shape")["color"]["hex"]
+    scrim = next(layer for layer in layout["layers"] if layer["name"] == "scrim")["color"]
+    on_scrim = _blend(scrim["hex"], scrim["opacity"])
     for layer in layout["layers"]:
         if layer["type"] != "text":
             continue
         text_colour = layer["color"]["hex"]
-        against = layer.get("background", {}).get("hex", bg)
-        assert _contrast_ratio(text_colour, against) >= 4.5, layer["name"]
+        against = layer.get("background", {}).get("hex", on_scrim)
+        minimum = 3.0 if layer["name"] == "caption" else 4.5
+        assert _contrast_ratio(text_colour, against) >= minimum, layer["name"]
 
 
 BASE_CKPT = "sd_xl_base_1.0.safetensors"
@@ -239,8 +275,8 @@ def test_run_generation_with_fake_renderer(storage: FakeStorage) -> None:
     assert image["raster_key"] in storage.objects
     assert image["raster_url"].endswith(f"/raster/{image['layer_id']}")
     prompt, w, h, lora = renderer.calls[0]
-    assert "espresso" in prompt and lora == "style-lora-v1.safetensors"
-    assert w % 64 == 0 and h % 64 == 0 and max(w, h) <= 1024
+    assert "espresso" in prompt and "no text" in prompt and lora == "style-lora-v1.safetensors"
+    assert (w, h) == (1024, 576)  # full bleed: the render keeps the canvas aspect
 
 
 def test_run_generation_null_renderer_falls_back_to_colour(storage: FakeStorage) -> None:

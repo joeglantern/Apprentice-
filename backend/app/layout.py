@@ -4,6 +4,12 @@ Turns a DesignPlan into the layer JSON the app renders (docs/01 section 3 shape)
 profile supplies the designer's habits: margin ratio, dominant alignment, headline size
 relative to canvas width. The trained model will replace `heuristic_layout` with a call
 to the Legion; the output contract stays the same.
+
+The recipe is a poster, not a web hero (docs/06 D15): the image is full bleed, a scrim
+darkens the text zone so type can sit on top of it legibly, and the type stack is
+anchored to the bottom of that zone with a real hierarchy - small letter-spaced eyebrow,
+one very large headline, subhead, details, a button. Landscape puts the zone on the
+left, portrait on the bottom. A logo role becomes a small wordmark at the top.
 """
 
 from __future__ import annotations
@@ -11,6 +17,17 @@ from __future__ import annotations
 from typing import Any
 
 from app.director import DEFAULT_PALETTE, DesignPlan, PlanElement
+
+# Composition hints appended to every image prompt: the renderer is painting a poster
+# background, so it must leave room for type and must not paint its own lettering.
+IMAGE_PROMPT_SUFFIX = (
+    "poster background photograph, cinematic lighting, strong single subject, clean "
+    "uncluttered negative space, no text, no letters, no logos, no watermark"
+)
+
+# Poster headlines are big. A designer profile can push this up, never below the floor.
+HEADLINE_RATIO_FLOOR = 0.075
+HEADLINE_RATIO_DEFAULT = 0.085
 
 
 def _profile_value(profile: dict[str, Any] | None, *keys: str, default: Any) -> Any:
@@ -60,132 +77,237 @@ def _readable_text_colour(candidate: str, background: str, min_ratio: float = 4.
     return "#FFFFFF" if white_ratio >= black_ratio else "#111111"
 
 
+def _blend(colour: str, opacity: float, under: str = "#808080") -> str:
+    """What a semi-transparent scrim looks like over an unknown photo, approximated as
+    over mid-grey - the colour the text contrast is actually checked against."""
+    try:
+        top = [int(colour[i : i + 2], 16) for i in (1, 3, 5)]
+        base = [int(under[i : i + 2], 16) for i in (1, 3, 5)]
+    except (ValueError, IndexError):
+        return under
+    mixed = [round(t * opacity + b * (1 - opacity)) for t, b in zip(top, base, strict=True)]
+    return "#{:02X}{:02X}{:02X}".format(*mixed)
+
+
+def _darkest(palette: list[str]) -> str:
+    return min(palette, key=_relative_luminance)
+
+
+def _brightest(palette: list[str]) -> str:
+    return max(palette, key=_relative_luminance)
+
+
+def _wordmark(content: str) -> str:
+    text = content.strip()
+    for suffix in (" logo", " wordmark", " brand mark"):
+        if text.lower().endswith(suffix):
+            text = text[: -len(suffix)]
+    return text.strip().upper()
+
+
 def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[str, Any]:
     width, height = plan.canvas["width"], plan.canvas["height"]
+    landscape = width >= height
+    short_side = min(width, height)
     # Clamped so an unusual profile (e.g. mostly centred single-block designs, whose
-    # min-edge margin skews high) can never push the landscape text column negative.
-    margin_ratio = min(max(float(_profile_value(profile, "margin_ratio", default=0.06)), 0.0), 0.15)
-    margin = int(width * margin_ratio)
+    # min-edge margin skews high) can never push the text column negative.
+    margin_ratio = min(
+        max(float(_profile_value(profile, "margin_ratio", default=0.06)), 0.04), 0.12
+    )
+    margin = int(short_side * margin_ratio)
     align = _dominant(profile, "text_alignment", "left")
-    headline_ratio = float(
-        _profile_value(profile, "type_size_ratio", "headline_median", default=0.05)
+    profile_ratio = _profile_value(profile, "type_size_ratio", "headline_median", default=None)
+    headline_ratio = (
+        max(float(profile_ratio), HEADLINE_RATIO_FLOOR) if profile_ratio else HEADLINE_RATIO_DEFAULT
     )
     palette = plan.palette_intent or list(DEFAULT_PALETTE)
-    bg = palette[1] if len(palette) > 1 else "#FFFFFF"
-    accent = palette[2] if len(palette) > 2 else palette[0]
-    fg = _readable_text_colour(palette[0], bg)
-    accent = _readable_text_colour(accent, bg)
+    scrim = _darkest(palette)
+    accent = _brightest(palette) if len(palette) > 1 else "#FFFFFF"
+    scrim_opacity = 0.78
+    on_scrim = _blend(scrim, scrim_opacity)
+    fg = _readable_text_colour("#FFFFFF", on_scrim)
+    accent = _readable_text_colour(accent, on_scrim, min_ratio=3.0)
 
     ordered = sorted(plan.elements, key=lambda e: e.priority)
     layers: list[dict[str, Any]] = []
-    z = 0
 
     def add(layer: dict[str, Any]) -> None:
-        nonlocal z
         layer["layer_id"] = f"L{len(layers) + 1:02d}"
-        layer["z_index"] = z
+        layer["z_index"] = len(layers)
         layers.append(layer)
-        z += 1
 
-    # Background: any shape element becomes the full-bleed ground.
-    shapes = [e for e in ordered if e.role == "shape"]
-    add(
-        {
-            "name": shapes[0].content if shapes else "background",
-            "type": "shape",
-            "bbox": {"x": 0, "y": 0, "width": width, "height": height},
-            "color": {"hex": bg, "opacity": 1.0},
-        }
-    )
-
-    # Image: right column on landscape, top band on portrait.
+    # 1. Full-bleed image. Without one (director dropped it, validator would have
+    #    refused) the darkest palette colour is the ground.
     images = [e for e in ordered if e.role == "image"]
-    landscape = width >= height
-    text_left = margin
-    text_width = width - 2 * margin
-    text_top = margin
     if images:
         image = images[0]
-        if landscape:
-            img_w = int(width * 0.46)
-            bbox = {
-                "x": width - margin - img_w,
-                "y": margin,
-                "width": img_w,
-                "height": height - 2 * margin,
-            }
-            text_width = width - 3 * margin - img_w
-        else:
-            img_h = int(height * 0.48)
-            bbox = {"x": margin, "y": margin, "width": width - 2 * margin, "height": img_h}
-            text_top = margin * 2 + img_h
+        base_prompt = (image.image_prompt or image.content).strip().rstrip(",. ")
         add(
             {
                 "name": image.content,
                 "type": "image",
-                "bbox": bbox,
-                "image_prompt": image.image_prompt or image.content,
+                "bbox": {"x": 0, "y": 0, "width": width, "height": height},
+                "image_prompt": f"{base_prompt}, {IMAGE_PROMPT_SUFFIX}",
+            }
+        )
+    else:
+        add(
+            {
+                "name": "background",
+                "type": "shape",
+                "bbox": {"x": 0, "y": 0, "width": width, "height": height},
+                "color": {"hex": scrim, "opacity": 1.0},
             }
         )
 
-    # Text stack: headline, subhead, body, caption, cta, top to bottom.
-    order = {"headline": 0, "subhead": 1, "body": 2, "caption": 3, "cta": 4, "logo": 5}
-    texts = sorted((e for e in ordered if e.role in order), key=lambda e: order[e.role])
+    # 2. Text zone + scrim. Left ~55% on landscape, bottom ~58% on portrait.
+    if landscape:
+        zone = {"x": 0, "y": 0, "width": int(width * 0.56), "height": height}
+    else:
+        zone_h = int(height * 0.58)
+        zone = {"x": 0, "y": height - zone_h, "width": width, "height": zone_h}
+    add(
+        {
+            "name": "scrim",
+            "type": "shape",
+            "bbox": dict(zone),
+            "color": {"hex": scrim, "opacity": scrim_opacity},
+        }
+    )
+    # A light full-canvas tint unifies the photo with the palette.
+    add(
+        {
+            "name": "tint",
+            "type": "shape",
+            "bbox": {"x": 0, "y": 0, "width": width, "height": height},
+            "color": {"hex": scrim, "opacity": 0.12},
+        }
+    )
+
+    text_left = zone["x"] + margin
+    text_width = zone["width"] - 2 * margin
+    zone_bottom = zone["y"] + zone["height"] - margin
     font_family = _dominant(profile, "fonts", "Helvetica Neue")
-    y = text_top
-    for element in texts:
-        size = _text_size(element, width, headline_ratio)
-        chars_per_line = max(1, int(text_width / max(1, size * 0.55)))
-        lines = max(1, min(4, -(-len(element.content) // chars_per_line)))
-        h = int(size * 1.15 * lines)
-        w = text_width
-        if element.role == "cta":
-            pad = int(size * 0.6)
-            w = min(w, size * 9)
-            h += pad
-        # Only a narrower box (the cta) actually moves with alignment; full-width text
-        # boxes carry `align` for the renderer's text-anchor and don't need to shift.
+
+    def x_for(w: int) -> int:
         if align == "center":
-            x = text_left + (text_width - w) // 2
-        elif align == "right":
-            x = text_left + text_width - w
-        else:
-            x = text_left
+            return text_left + (text_width - w) // 2
+        if align == "right":
+            return text_left + text_width - w
+        return text_left
+
+    # 3. Wordmark top-left, from a logo role if the director gave one.
+    logos = [e for e in ordered if e.role == "logo"]
+    if logos:
+        size = _text_size("logo", width, headline_ratio)
+        add(
+            {
+                "name": "wordmark",
+                "type": "text",
+                "bbox": {"x": margin, "y": margin, "width": text_width, "height": int(size * 1.3)},
+                "text": _wordmark(logos[0].content),
+                "align": "left",
+                "typography": {
+                    "font_family": font_family,
+                    "font_size": size,
+                    "font_weight": 700,
+                    "letter_spacing": round(size * 0.18, 1),
+                    "line_height": 1.2,
+                },
+                "color": {"hex": fg, "opacity": 1.0},
+            }
+        )
+
+    # 4. The stack, laid out bottom-up so it anchors to the bottom of the zone:
+    #    cta, body, subhead, headline, accent bar, eyebrow (caption).
+    order = {"caption": 0, "headline": 1, "subhead": 2, "body": 3, "cta": 4}
+    texts = sorted((e for e in ordered if e.role in order), key=lambda e: order[e.role])
+    if not any(e.role == "headline" for e in texts):
+        texts.insert(0, PlanElement(role="headline", content="Untitled", priority=1))
+    blocks: list[dict[str, Any]] = []
+    for element in texts:
+        size = _text_size(element.role, width, headline_ratio)
+        content = element.content.strip()
+        if element.role in ("caption", "cta"):
+            content = content.upper()
+        chars_per_line = max(1, int(text_width / max(1, size * 0.52)))
+        max_lines = 3 if element.role == "headline" else 4
+        lines = max(1, min(max_lines, -(-len(content) // chars_per_line)))
+        line_height = 1.02 if element.role == "headline" else 1.3
+        h = int(size * line_height * lines)
+        w = text_width
         layer: dict[str, Any] = {
             "name": element.role,
             "type": "text",
-            "bbox": {"x": x, "y": y, "width": w, "height": h},
-            "text": element.content,
+            "text": content,
             "align": align,
             "typography": {
                 "font_family": font_family,
                 "font_size": size,
-                "font_weight": 700 if element.role in ("headline", "cta") else 400,
-                "line_height": 1.15,
+                "font_weight": {"headline": 800, "cta": 700, "caption": 600}.get(element.role, 400),
+                "line_height": line_height,
             },
-            "color": {"hex": accent if element.role == "cta" else fg, "opacity": 1.0},
+            "color": {"hex": accent if element.role == "caption" else fg, "opacity": 1.0},
         }
+        if element.role == "caption":
+            layer["typography"]["letter_spacing"] = round(size * 0.2, 1)
         if element.role == "cta":
+            pad = int(size * 0.9)
+            w = min(text_width, int(len(content) * size * 0.68) + 2 * pad)
+            h += pad
+            layer["typography"]["letter_spacing"] = round(size * 0.08, 1)
             layer["background"] = {"hex": accent, "opacity": 1.0}
-            # Contrast against the button's own fill, not the page background - accent
-            # was only checked against the page, not against itself.
-            layer["color"] = {"hex": _readable_text_colour(bg, accent), "opacity": 1.0}
-        add(layer)
-        y += h + int(size * 0.8)
-        if y > height - margin:
+            layer["color"] = {"hex": _readable_text_colour(scrim, accent), "opacity": 1.0}
+        layer["bbox"] = {"x": x_for(w), "y": 0, "width": w, "height": h}
+        blocks.append((layer, size))  # type: ignore[arg-type]
+
+    # Gaps: tight between headline and its eyebrow, generous before the cta.
+    y = zone_bottom
+    placed: list[dict[str, Any]] = []
+    for layer, size in reversed(blocks):  # type: ignore[misc]
+        gap = {
+            "cta": int(size * 1.4),
+            "headline": int(size * 0.35),
+            "caption": int(size * 0.9),
+        }.get(layer["name"], int(size * 0.7))
+        y -= layer["bbox"]["height"]
+        if y < zone["y"] + margin:
             break
+        layer["bbox"]["y"] = y
+        placed.append(layer)
+        if layer["name"] == "headline":
+            bar_h = max(4, int(size * 0.08))
+            y -= int(size * 0.45) + bar_h
+            placed.append(
+                {
+                    "name": "accent bar",
+                    "type": "shape",
+                    "bbox": {
+                        "x": x_for(int(size * 1.6)),
+                        "y": y,
+                        "width": int(size * 1.6),
+                        "height": bar_h,
+                    },
+                    "color": {"hex": accent, "opacity": 1.0},
+                }
+            )
+            y -= int(size * 0.35)
+        else:
+            y -= gap
+    for layer in reversed(placed):
+        add(layer)
 
     return {"canvas": {"width": width, "height": height}, "layers": layers}
 
 
-def _text_size(element: PlanElement, width: int, headline_ratio: float) -> int:
+def _text_size(role: str, width: int, headline_ratio: float) -> int:
     base = max(12, int(width * headline_ratio))
     scale = {
         "headline": 1.0,
-        "subhead": 0.5,
-        "body": 0.34,
-        "caption": 0.26,
-        "cta": 0.4,
-        "logo": 0.4,
-    }[element.role]
+        "subhead": 0.36,
+        "body": 0.22,
+        "caption": 0.17,
+        "cta": 0.2,
+        "logo": 0.18,
+    }[role]
     return max(12, int(base * scale))

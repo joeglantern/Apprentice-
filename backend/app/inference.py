@@ -30,7 +30,8 @@ log = logging.getLogger(__name__)
 # Broader than "text, watermark" alone: the standard SDXL community negative prompt,
 # free quality win, no extra model or data needed.
 DEFAULT_NEGATIVE = (
-    "text, watermark, signature, lowres, low quality, jpeg artifacts, blurry, out of "
+    "text, letters, words, typography, signage, logo, watermark, signature, lowres, "
+    "low quality, jpeg artifacts, blurry, out of "
     "focus, worst quality, extra limbs, deformed, disfigured, bad anatomy, cropped, "
     "duplicate, ugly, oversaturated"
 )
