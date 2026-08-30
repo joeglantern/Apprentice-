@@ -55,14 +55,19 @@ class DesignPlan(BaseModel):
 
     @field_validator("palette_intent")
     @classmethod
-    def _valid_hex(cls, value: list[str]) -> list[str]:
-        """A local model occasionally emits a colour name or a malformed string instead
-        of #RRGGBB. Reject here, at the schema boundary, rather than crash deep inside
-        the layout engine's contrast maths on the first bad entry it touches."""
+    def _extract_hex(cls, value: list[str]) -> list[str]:
+        """The local model is inconsistent about strict #RRGGBB output - it regularly
+        embeds a real hex code inside a colour name ("Dark Navy (#1C1C1C)") or gives a
+        mood word instead of a colour ("Vibrant"). Extract whatever real hex code an
+        entry contains and drop entries with none, rather than reject an otherwise good
+        plan - headline, rationale, elements - over one messy field. layout.py already
+        falls back to a sane default palette if this list ends up empty."""
+        cleaned: list[str] = []
         for item in value:
-            if not _HEX_COLOUR.fullmatch(item):
-                raise ValueError(f"palette_intent entry is not #RRGGBB: {item!r}")
-        return [v.upper() for v in value]
+            match = _HEX_COLOUR.search(item)
+            if match:
+                cleaned.append(match.group(0).upper())
+        return cleaned
 
     @model_validator(mode="after")
     def _has_a_visual(self) -> DesignPlan:

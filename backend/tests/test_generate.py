@@ -278,18 +278,32 @@ def test_design_plan_requires_an_image_element() -> None:
     assert isinstance(io.BytesIO(b""), io.BytesIO)
 
 
-def test_design_plan_rejects_malformed_hex_in_palette() -> None:
-    """Regression: a real local-model response once put a non-hex string into
-    palette_intent, which used to sail through validation and crash later, deep
-    inside the layout engine's contrast maths, instead of triggering the fallback."""
-    with pytest.raises(Exception, match="palette_intent"):
-        DesignPlan(
-            rationale="r",
-            canvas={"width": 10, "height": 10},
-            mood=["a"],
-            palette_intent=["#Bright Orange"],
-            elements=[PlanElement(role="image", content="a picture", priority=1)],
-        )
+def test_design_plan_extracts_hex_and_drops_non_colours() -> None:
+    """Regression: real local-model output mixed a colour-name-wrapped hex, a bare
+    mood word, and a genuinely malformed value into palette_intent - all three were
+    observed live. The plan (real headline, rationale, elements) must survive; only
+    the unusable palette entries should be dropped, not the whole plan."""
+    plan = DesignPlan(
+        rationale="r",
+        canvas={"width": 10, "height": 10},
+        mood=["a"],
+        palette_intent=["Dark Navy (#1C1C1C)", "Vibrant", "cool tones with blue and white"],
+        elements=[PlanElement(role="image", content="a picture", priority=1)],
+    )
+    assert plan.palette_intent == ["#1C1C1C"]
+
+
+def test_design_plan_empty_palette_is_fine() -> None:
+    """If nothing in palette_intent contains a real hex code, the field ends up empty
+    rather than failing the plan - layout.py's DEFAULT_PALETTE fallback handles it."""
+    plan = DesignPlan(
+        rationale="r",
+        canvas={"width": 10, "height": 10},
+        mood=["a"],
+        palette_intent=["Vibrant", "Modern"],
+        elements=[PlanElement(role="image", content="a picture", priority=1)],
+    )
+    assert plan.palette_intent == []
 
 
 def test_layout_never_crashes_on_a_malformed_hex_defensively() -> None:
