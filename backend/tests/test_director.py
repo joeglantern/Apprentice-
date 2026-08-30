@@ -145,3 +145,28 @@ def test_design_plan_default_palette_matches_layout() -> None:
     layout = heuristic_layout(plan, None)
     scrim = next(layer for layer in layout["layers"] if layer["name"] == "scrim")
     assert scrim["color"]["hex"] == DEFAULT_PALETTE[0]  # the darkest default colour
+
+
+def test_brand_kit_binds_palette_typeface_and_logo_in_the_heuristic_fallback() -> None:
+    import asyncio
+
+    from app.config import Settings
+    from app.director import BrandKit, plan_design
+
+    kit = BrandKit(
+        name="Umoja Threads", palette=["dark (#1A2B3C)", "bad", "#F2A623"], typeface="bebas"
+    )
+    assert kit.palette == ["#1A2B3C", "#F2A623"]
+    settings = Settings(database_url="sqlite://")  # no director backends configured
+    plan = asyncio.run(plan_design("New drop poster", 1080, 1350, None, settings, kit))
+    assert plan.palette_intent == ["#1A2B3C", "#F2A623"]
+    assert plan.typeface == "bebas"
+    assert any(e.role == "logo" and e.content == "Umoja Threads" for e in plan.elements)
+
+
+def test_brand_text_reaches_the_model_prompt() -> None:
+    from app.director import BrandKit, _user_text
+
+    text = _user_text("x", 1080, 1350, None, BrandKit(name="Kaldi", palette=["#112233"]))
+    assert "binding" in text and "'Kaldi'" in text and "#112233" in text
+    assert _user_text("x", 1080, 1350, None).count("Brand kit") == 0

@@ -14,6 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth import verify_agent_token, verify_agent_token_or_query
 from app.db import get_session
+from app.director import BrandKit
 from app.models import Checkpoint, Job
 from app.queue import enqueue_generation
 from app.schemas import UUID_PATTERN
@@ -33,6 +34,7 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=2000)
     aesthetic_version: str = Field(default=BASELINE, pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
     kind: Kind = "poster"
+    brand: BrandKit | None = None
     # Portrait 4:5 by default: the poster and social-post shape, not a web banner.
     width: int = Field(default=1080, ge=256, le=4096)
     height: int = Field(default=1350, ge=256, le=4096)
@@ -91,6 +93,7 @@ async def start_generation(
         prompt=body.prompt.strip(),
         aesthetic_version=body.aesthetic_version,
         kind=body.kind,
+        brand=body.brand.model_dump() if body.brand else None,
         width=body.width,
         height=body.height,
         requested_by=agent_id,

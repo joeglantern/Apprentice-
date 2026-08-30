@@ -43,6 +43,26 @@ TYPEFACE_GUIDE = {
 }
 
 
+class BrandKit(BaseModel):
+    """A client's fixed identity (docs/06 D19): every piece in a campaign shares it.
+    The director must use these exactly - palette not reinterpreted, name not
+    restyled - so a series stays on-brand."""
+
+    name: str = Field(min_length=1, max_length=80)
+    palette: list[str] = Field(default_factory=list, max_length=6)
+    typeface: Typeface | None = None
+
+    @field_validator("palette")
+    @classmethod
+    def _hex_only(cls, value: list[str]) -> list[str]:
+        cleaned = []
+        for item in value:
+            match = _HEX_COLOUR.search(item)
+            if match:
+                cleaned.append(match.group(0).upper())
+        return cleaned
+
+
 class PlanElement(BaseModel):
     role: Role
     content: str = Field(description="Copy for text roles; a short description for others")
@@ -222,11 +242,32 @@ class DirectorRefused(RuntimeError):
     pass
 
 
-def _user_text(brief: str, width: int, height: int, profile: dict[str, Any] | None) -> str:
+def _brand_text(brand: BrandKit | None) -> str:
+    if brand is None:
+        return ""
+    lines = [f"Brand kit (binding, not a suggestion): the brand is {brand.name!r}."]
+    if brand.palette:
+        lines.append(
+            "Use exactly this palette for palette_intent: " + ", ".join(brand.palette) + "."
+        )
+    if brand.typeface:
+        lines.append(f"Use the {brand.typeface} typeface pairing.")
+    lines.append("Include a logo element with the brand name.")
+    return "\n".join(lines) + "\n\n"
+
+
+def _user_text(
+    brief: str,
+    width: int,
+    height: int,
+    profile: dict[str, Any] | None,
+    brand: BrandKit | None = None,
+) -> str:
     today = date.today().isoformat()
     return (
         f"Today's date: {today}\n\n"
-        f"Brief: {brief.strip()}\n\nCanvas: {width} x {height} px\n\n"
+        f"Brief: {brief.strip()}\n\n"
+        f"{_brand_text(brand)}Canvas: {width} x {height} px\n\n"
         f"Designer style profile:\n{_profile_text(profile)}\n\n"
         "If the brief gives a date, use exactly that date everywhere - the body, the "
         "date_badge, the copy - and never substitute another. Only if the brief needs a "
@@ -264,7 +305,12 @@ async def _call_local_director(settings: Settings, user_text: str, schema: dict[
 
 
 async def _local_plan(
-    brief: str, width: int, height: int, profile: dict[str, Any] | None, settings: Settings
+    brief: str,
+    width: int,
+    height: int,
+    profile: dict[str, Any] | None,
+    settings: Settings,
+    brand: BrandKit | None = None,
 ) -> DesignPlan | None:
     """Returns None (never raises) when the local model is unreachable or answers badly,
     so the caller can fall back to the heuristic plan without the job failing. A smaller
@@ -272,7 +318,7 @@ async def _local_plan(
     a validation failure (not on a connection failure, which is unlikely to change) is
     cheap and, empirically, recovers a real share of otherwise-wasted heuristic fallbacks."""
     schema = DesignPlan.model_json_schema()
-    user_text = _user_text(brief, width, height, profile)
+    user_text = _user_text(brief, width, height, profile, brand)
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
@@ -294,7 +340,12 @@ async def _local_plan(
 
 
 async def _anthropic_plan(
-    brief: str, width: int, height: int, profile: dict[str, Any] | None, settings: Settings
+    brief: str,
+    width: int,
+    height: int,
+    profile: dict[str, Any] | None,
+    settings: Settings,
+    brand: BrandKit | None = None,
 ) -> DesignPlan | None:
     import anthropic
 
@@ -306,7 +357,9 @@ async def _anthropic_plan(
             system=[
                 {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
             ],
-            messages=[{"role": "user", "content": _user_text(brief, width, height, profile)}],
+            messages=[
+                {"role": "user", "content": _user_text(brief, width, height, profile, brand)}
+            ],
             output_format=DesignPlan,
             output_config={"effort": settings.director_effort},
         )
@@ -339,18 +392,27 @@ async def plan_design(
     height: int,
     profile: dict[str, Any] | None,
     settings: Settings,
+    brand: BrandKit | None = None,
 ) -> DesignPlan:
     """Claude (if configured) -> local LLM (if configured) -> heuristic. Each step is a
     strict fallback: any failure of an earlier step tries the next, never raises past
     DirectorRefused (a real content decision, not an availability problem)."""
     if settings.anthropic_api_key:
-        plan = await _anthropic_plan(brief, width, height, profile, settings)
+        plan = await _anthropic_plan(brief, width, height, profile, settings, brand)
         if plan is not None:
             return plan
     if settings.local_director_url:
-        plan = await _local_plan(brief, width, height, profile, settings)
+        plan = await _local_plan(brief, width, height, profile, settings, brand)
         if plan is not None:
             return plan
     else:
         log.info("no director backend configured; using the heuristic plan")
-    return heuristic_plan(brief, width, height, profile)
+    plan = heuristic_plan(brief, width, height, profile)
+    if brand is not None:
+        # Even the no-model fallback honours the kit.
+        if brand.palette:
+            plan.palette_intent = list(brand.palette)
+        if brand.typeface:
+            plan.typeface = brand.typeface
+        plan.elements.append(PlanElement(role="logo", content=brand.name, priority=5))
+    return plan

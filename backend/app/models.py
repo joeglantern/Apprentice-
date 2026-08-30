@@ -55,6 +55,9 @@ class Job(SQLModel, table=True):
     width: int
     height: int
     requested_by: str = Field(max_length=100)
+    # Optional brand kit (docs/06 D19): {name, palette, typeface}, validated by the
+    # director's BrandKit model at plan time.
+    brand: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     status: str = Field(default="queued", index=True, max_length=20)
     plan: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))

@@ -14,7 +14,7 @@ from typing import Any
 
 from app.config import Settings
 from app.critic import pick_best
-from app.director import DesignPlan, DirectorRefused, PlanElement, plan_design
+from app.director import BrandKit, DesignPlan, DirectorRefused, PlanElement, plan_design
 from app.inference import Renderer
 from app.layout import heuristic_layout
 
@@ -47,6 +47,7 @@ def run_generation(
     storage: SyncStorage,
     progress: Progress,
     kind: str = "poster",
+    brand: dict[str, Any] | None = None,
 ) -> tuple[DesignPlan, dict[str, Any]]:
     if kind in ("image", "logo"):
         # No director, no layout: one full-canvas render. A logo names its brand in
@@ -58,7 +59,8 @@ def run_generation(
     else:
         progress("planning", {"message": "Thinking about the brief"})
         try:
-            plan = asyncio.run(plan_design(prompt, width, height, profile, settings))
+            kit = BrandKit.model_validate(brand) if brand else None
+            plan = asyncio.run(plan_design(prompt, width, height, profile, settings, kit))
         except DirectorRefused as exc:
             raise RuntimeError(f"Declined: {exc}") from exc
         progress("layout", {"message": "Composing in the designer's habits"})
