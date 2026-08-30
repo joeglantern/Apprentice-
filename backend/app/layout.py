@@ -265,7 +265,7 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
     )
     # The layer schema has no gradients, so the scrim fades into the photo through a
     # run of thin bands of falling opacity past its edge instead of a hard cut.
-    steps = 8 if composition != "split" else 0  # a solid panel has a hard edge on purpose
+    steps = 16 if composition != "split" else 0  # a solid panel has a hard edge on purpose
     fade = int((width if landscape else height) * 0.14)
     if composition == "centered":
         fade = int(height * 0.2)
