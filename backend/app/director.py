@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from typing import Any, Literal
 
 import httpx
@@ -110,9 +111,13 @@ class DirectorRefused(RuntimeError):
 
 
 def _user_text(brief: str, width: int, height: int, profile: dict[str, Any] | None) -> str:
+    today = date.today().isoformat()
     return (
+        f"Today's date: {today}\n\n"
         f"Brief: {brief.strip()}\n\nCanvas: {width} x {height} px\n\n"
         f"Designer style profile:\n{_profile_text(profile)}\n\n"
+        "If the brief needs a specific date and none is given, invent one that is "
+        "plausible and in the future relative to today's date above - never a past date.\n\n"
         "Produce the design plan."
     )
 

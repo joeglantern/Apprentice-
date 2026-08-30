@@ -38,6 +38,8 @@ async def test_local_backend_used_when_configured(monkeypatch: pytest.MonkeyPatc
     async def fake_call(settings, user_text, schema) -> str:  # noqa: ANN001, ARG001
         assert "Jazz night" in user_text
         assert "properties" in schema
+        assert "Today's date:" in user_text
+        assert "never a past date" in user_text
         return json.dumps(good_plan)
 
     monkeypatch.setattr(director_mod, "_call_local_director", fake_call)
