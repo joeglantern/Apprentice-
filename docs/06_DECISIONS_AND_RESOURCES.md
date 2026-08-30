@@ -420,8 +420,14 @@ sizes, date badges, icons, and for standalone photographs and logos alongside po
   quotes passes it as `scene_text`, so the Flux path sets the real letters. New
   `jobs.kind` column, migration 0004. The prompt screen gets a plain three-way
   selector; Claude Design owns the look.
-- **Icons**: not yet. The right free set is Tabler Icons (MIT); it needs an `icon`
-  layer type and an SVG path table in the app. Next.
+- **Icons**: Tabler Icons (MIT), seven outline glyphs bundled in `app/assets/icons`.
+  Each detail line gets one chosen from what it says (date, time, place, price,
+  phone, handle); a new `icon` layer type, drawn by the app from a path table.
+- **Flux verified live.** The Q4_K_S GGUF plus T5 Q4_K_S, CLIP-L and the VAE
+  (from an ungated mirror, SHA-256 checked against the official file) run on the
+  8GB card through ComfyUI-GGUF. A logo brief for "Umoja Threads" came back with
+  the name set correctly in clean type; SDXL's attempt at the same brief read
+  "UMOIATHEARD". Flux is used only where words must be inside the picture.
 - **Photoreal humans and animals**: SDXL base is adequate; the free upgrade to
   check next is a photoreal SDXL fine-tune (RealVisXL) - license to be read
   directly before adopting, as with D11.
