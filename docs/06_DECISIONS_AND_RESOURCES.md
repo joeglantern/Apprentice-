@@ -448,3 +448,37 @@ Commons photographs so "Nairobi" stops looking generic, brand kits (palette plus
 logo file carried by a brief so a series stays on-brand), the Crello layout
 pretraining (D14, blocked on disk), and an edit loop in the app (re-render just
 the photo, swap composition or typeface without replanning).
+
+## D18 - Face detail pass; the face dataset question; a tunnel postmortem (2026-08-30)
+
+Operator flagged bad faces, teeth and fingers and asked about face datasets
+(African-focused). The honest analysis: these are architectural SDXL weaknesses -
+a face in a full-scene render gets a few dozen pixels - not missing training
+data, so a dataset fine-tune is the weakest and most expensive fix. What shipped
+instead: after every SDXL render, face_yolov8m (Apache 2.0 weights from
+Bingsu/adetailer, verified) detects each face and Impact Pack's FaceDetailer
+re-renders it at guide size 512 with the same stage's model and prompts. The
+FaceDetailer field set was taken from the live /object_info schema, not
+documentation - the D11 lesson, and this time it worked on the first try.
+FACE_DETAIL=0 disables. hand_yolov8s.pt is downloaded for a future hand pass.
+
+Datasets, licenses read directly: FairFace is genuinely CC BY 4.0 and balanced
+across race - adopted for *evaluating* our outputs across skin tones, not for
+training on faces (consent and biometric-law risk on a project that may become
+paid work). CelebA, FFHQ and the Kaggle "African faces" sets are research-only
+or unclear - not adopted. RealVisXL V5.0 is clean OpenRAIL++ (checked the model
+card raw - no extra restriction, unlike Juggernaut in D11) and is the adopted
+next photoreal upgrade, blocked at 4.5 GB free disk until the OneDrive cache
+(70 GB) is dealt with.
+
+Postmortem, for the next person debugging "the tunnel is up but hangs": tonight's
+S4U scheduled-task change moved ComfyUI and the tunnel into session 0, where a
+non-elevated shell cannot kill them (WMI shows an empty command line; taskkill
+silently fails). A ComfyUI predating the ultralytics install held port 8188 that
+way until an elevated taskkill cleared it. Separately, killing tunnel clients
+without TCP teardown leaves sshd on the VPS holding the remote-forward binds for
+a session whose client is gone - every new tunnel then fails its bind
+(ExitOnForwardFailure) and loops, while connections into the stale binds hang
+forever. The fix was killing the stale sshd session server-side; the lasting
+lesson is that the VPS sshd has no ClientAliveInterval, so dead remote-forward
+sessions never expire on their own.
