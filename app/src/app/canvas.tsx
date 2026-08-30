@@ -31,6 +31,7 @@ export default function CanvasScreen() {
         {result && (
           <View style={styles.canvasWrap}>
             <CanvasPreview
+              jobId={jobId ?? ""}
               layers={result.layers}
               canvasWidth={result.canvas_width}
               canvasHeight={result.canvas_height}

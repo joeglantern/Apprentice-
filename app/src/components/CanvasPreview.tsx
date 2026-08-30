@@ -1,8 +1,10 @@
 import Svg, { Image as SvgImage, Rect, Text as SvgText } from "react-native-svg";
 
+import { rasterUrl } from "@/lib/api";
 import type { Layer } from "@/lib/types";
 
 interface Props {
+  jobId: string;
   layers: Layer[];
   canvasWidth: number;
   canvasHeight: number;
@@ -11,7 +13,7 @@ interface Props {
 /** Renders the doc 01 section 3 layer JSON as SVG, vector structure with the style
  * model's raster fills composited inside it (doc 01 section 5, doc 04 section 3). The
  * viewBox is the coordinate system, so this is identical on web and on a phone. */
-export function CanvasPreview({ layers, canvasWidth, canvasHeight }: Props) {
+export function CanvasPreview({ jobId, layers, canvasWidth, canvasHeight }: Props) {
   const ordered = [...layers]
     .filter((l) => l.visible !== false)
     .sort((a, b) => a.z_index - b.z_index);
@@ -34,15 +36,15 @@ export function CanvasPreview({ layers, canvasWidth, canvasHeight }: Props) {
           );
         }
         if (layer.type === "image" && layer.raster_url) {
+          // layer.raster_url from the backend is a relative, unauthenticated path -
+          // a hint for humans reading the JSON, not something a client can fetch.
+          // rasterUrl() rebuilds the real address with the base URL and the agent
+          // token as a query param, since react-native-svg's Image href can't carry
+          // an Authorization header.
           return (
-            // NOTE: raster_url needs the same bearer token as every other backend
-            // route. react-native-svg's Image href does not carry custom headers,
-            // so the token currently must be embedded server-side (a signed URL or
-            // short-lived query param) rather than sent as an Authorization header -
-            // tracked as a follow-up, not solved by this component.
             <SvgImage
               key={layer.layer_id}
-              href={{ uri: layer.raster_url }}
+              href={{ uri: rasterUrl(jobId, layer.layer_id) }}
               x={x}
               y={y}
               width={width}

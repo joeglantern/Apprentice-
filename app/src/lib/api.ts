@@ -1,6 +1,6 @@
 /** Thin fetch client. No React, no state - hooks/ wraps this for components. */
 
-import type { Aesthetic, GenerateAccepted, Job } from "./types";
+import type { Aesthetic, GenerateAccepted, Job, JobSummary } from "./types";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const AGENT_TOKEN = process.env.EXPO_PUBLIC_AGENT_TOKEN;
@@ -51,9 +51,9 @@ export async function getJob(jobId: string): Promise<Job> {
   return unwrap<Job>(res);
 }
 
-export async function listJobs(limit = 50): Promise<Job[]> {
+export async function listJobs(limit = 50): Promise<JobSummary[]> {
   const res = await fetch(`${BASE_URL}/generate?limit=${limit}`, { headers: headers() });
-  return unwrap<Job[]>(res);
+  return unwrap<JobSummary[]>(res);
 }
 
 export async function listAesthetics(): Promise<Aesthetic[]> {
@@ -61,8 +61,13 @@ export async function listAesthetics(): Promise<Aesthetic[]> {
   return unwrap<Aesthetic[]>(res);
 }
 
+/** Full, authenticated URL for a rendered layer. Never use the backend's own
+ * raster_url field directly - it's a relative path with no auth, meant only as a
+ * human-readable hint, not something a client can fetch as-is. The token travels as
+ * a query param here because react-native-svg's Image href can't carry a header. */
 export function rasterUrl(jobId: string, layerId: string): string {
-  return `${BASE_URL}/generate/${jobId}/raster/${layerId}`;
+  const url = `${BASE_URL}/generate/${jobId}/raster/${layerId}`;
+  return AGENT_TOKEN ? `${url}?token=${encodeURIComponent(AGENT_TOKEN)}` : url;
 }
 
 export function socketBaseUrl(): string {

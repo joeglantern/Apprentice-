@@ -3,7 +3,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useJobHistory } from "@/hooks/useJobHistory";
-import type { Job } from "@/lib/types";
+import type { JobSummary } from "@/lib/types";
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "Queued",
@@ -27,11 +27,15 @@ export default function HistoryScreen() {
         onRefresh={() => history.refetch()}
         refreshing={history.isFetching}
         ListEmptyComponent={
-          !history.isLoading ? (
+          history.isError ? (
+            <Text style={styles.error}>
+              Couldn&apos;t load your history: {(history.error as Error).message}
+            </Text>
+          ) : !history.isLoading ? (
             <Text style={styles.empty}>No generations yet - try one from the prompt screen.</Text>
           ) : null
         }
-        renderItem={({ item }: { item: Job }) => (
+        renderItem={({ item }: { item: JobSummary }) => (
           <Pressable
             style={styles.row}
             onPress={() =>
@@ -61,6 +65,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0B0B0F" },
   list: { padding: 16, gap: 10 },
   empty: { color: "#6B707A", fontSize: 14, textAlign: "center", marginTop: 40 },
+  error: { color: "#E5484D", fontSize: 14, textAlign: "center", marginTop: 40 },
   row: {
     borderRadius: 12,
     borderWidth: 1,

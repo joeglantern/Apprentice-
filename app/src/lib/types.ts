@@ -66,6 +66,17 @@ export interface GenerateResult {
 
 export type JobStatus = "queued" | "planning" | "layout" | "render" | "done" | "error";
 
+/** The /generate list endpoint's row shape - no plan/result, matching the backend's
+ * JobSummary (those fields can be large and the list view never reads them). */
+export interface JobSummary {
+  job_id: string;
+  status: JobStatus;
+  prompt: string;
+  aesthetic_version: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Job {
   job_id: string;
   status: JobStatus;
