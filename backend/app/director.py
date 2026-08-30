@@ -145,7 +145,7 @@ the way a printed poster is structured, using these roles:
   ask for any text, lettering, logos or signage; type is added on top afterwards.
 Prefer fewer, stronger elements over many weak ones. Pick the typeface pairing and the
 composition that fit the mood - do not default to the same composition for every brief. If the brief names a composition (split, centered, anchor) or a typeface, that is an instruction: use it.
-Give dated events a date_badge. The rationale should read like a designer explaining
+Give a date_badge only when the brief itself states a date; a membership, a product or a shop with no date gets none. People in photographs are Kenyan unless the brief says otherwise. The rationale should read like a designer explaining
 choices to a collaborator, in plain language.
 
 Two examples of the standard expected, for different briefs:

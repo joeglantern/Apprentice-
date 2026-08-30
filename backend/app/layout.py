@@ -240,11 +240,12 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
             zone = {"x": 0, "y": height - zone_h, "width": width, "height": zone_h}
             image_box = {"x": 0, "y": 0, "width": width, "height": height - zone_h}
     elif composition == "centered":
+        col_w = int(width * (0.7 if landscape else 0.86))
         zone = {
-            "x": 0,
-            "y": int(height * 0.38),
-            "width": width,
-            "height": height - int(height * 0.38),
+            "x": (width - col_w) // 2,
+            "y": int(height * 0.3),
+            "width": col_w,
+            "height": height - int(height * 0.3),
         }
         image_box = {"x": 0, "y": 0, "width": width, "height": height}
     elif landscape:
@@ -290,7 +291,11 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
         {
             "name": "scrim",
             "type": "shape",
-            "bbox": dict(zone),
+            "bbox": (
+                {"x": 0, "y": zone["y"], "width": width, "height": zone["height"]}
+                if composition == "centered"
+                else dict(zone)
+            ),
             "color": {"hex": scrim, "opacity": scrim_opacity},
         }
     )
@@ -329,8 +334,11 @@ def heuristic_layout(plan: DesignPlan, profile: dict[str, Any] | None) -> dict[s
 
     # Date badge: a round accent disc top-right with the day large and the month small.
     if plan.date_badge and plan.date_badge.strip():
-        parts = plan.date_badge.strip().upper().split()
-        day, month = (parts[0], " ".join(parts[1:])) if len(parts) > 1 else (parts[0], "")
+        parts = [p for p in plan.date_badge.strip().upper().replace(",", " ").split() if p]
+        digits = [p for p in parts if p.isdigit() and len(p) <= 2]
+        words = [p for p in parts if p.isalpha()]
+        day = digits[0] if digits else (parts[0] if parts else "")
+        month = words[0][:3] if words else ""
         d = int(short_side * 0.17)
         bx, by = width - margin - d, margin
         badge_fg = _readable_text_colour(scrim, accent)

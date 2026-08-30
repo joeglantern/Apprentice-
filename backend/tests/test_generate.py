@@ -696,3 +696,15 @@ def test_two_candidates_are_rendered_and_the_judge_choice_is_kept(
     image = next(layer for layer in result["layers"] if layer["type"] == "image")
     assert len(renderer.calls) == 2 and image["critic"] == "second"
     assert storage.objects[image["raster_key"]][0] == b"img2"
+
+
+def test_badge_is_normalised_and_centered_landscape_keeps_its_headline() -> None:
+    plan = heuristic_plan("Cafe", 1600, 900, None)
+    plan.date_badge = "12 December, 2026"
+    plan.composition = "centered"
+    layout = heuristic_layout(plan, None)
+    by_name = {layer["name"]: layer for layer in layout["layers"]}
+    assert by_name["badge day"]["text"] == "12" and by_name["badge month"]["text"] == "DEC"
+    assert "headline" in by_name and by_name["headline"]["align"] == "center"
+    assert by_name["scrim"]["bbox"]["width"] == 1600
+    assert 0 < by_name["headline"]["bbox"]["x"] < 800
