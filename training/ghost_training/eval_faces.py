@@ -21,6 +21,7 @@ import base64
 import json
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 # Fixed briefs: same structure, varied person. Editing this list invalidates
@@ -62,11 +63,25 @@ MATRIX = [
 
 SCORE_PROMPT = (
     "Score this generated portrait 1-10 on face integrity: natural eyes, correct "
-    "teeth, no warped features, no extra or fused fingers if hands are visible, no "
-    "AI artefacts. Answer with only JSON: "
-    '{"score": n, "problems": []} - problems lists actual defects, e.g. "extra fingers"; '
-    "leave it empty when there are none."
+    "teeth, no warped features, correct hands if visible, no AI artefacts. Reply "
+    "with only JSON having an integer field named score and a list field named "
+    "problems that describes, in your own words, each defect you actually see in "
+    "this specific image. If you see no defects, problems must be an empty list."
 )
+
+
+def _retrying(fn: Callable[[], Any], attempts: int = 3, wait: float = 5.0) -> Any:
+    """Retries transient transport failures (a tunnel hiccup mid-poll killed a real
+    run); anything still failing after the attempts propagates."""
+    import httpx
+
+    for i in range(attempts):
+        try:
+            return fn()
+        except (httpx.TransportError, httpx.HTTPStatusError):
+            if i == attempts - 1:
+                raise
+            time.sleep(wait)
 
 
 def render(
@@ -75,27 +90,33 @@ def render(
     import httpx
 
     headers = {"Authorization": f"Bearer {token}"}
-    r = httpx.post(
-        f"{api_url}/generate",
-        headers=headers,
-        json={"prompt": prompt, "kind": "image", "width": 832, "height": 1024},
-        timeout=30,
+    r = _retrying(
+        lambda: httpx.post(
+            f"{api_url}/generate",
+            headers=headers,
+            json={"prompt": prompt, "kind": "image", "width": 832, "height": 1024},
+            timeout=30,
+        )
     )
     r.raise_for_status()
     job_id = r.json()["job_id"]
     deadline = time.time() + timeout
     while time.time() < deadline:
-        d = httpx.get(f"{api_url}/generate/{job_id}", headers=headers, timeout=30).json()
+        d = _retrying(
+            lambda: httpx.get(f"{api_url}/generate/{job_id}", headers=headers, timeout=30)
+        ).json()
         if d["status"] in ("done", "error"):
             break
         time.sleep(6)
     layers = (d.get("result") or {}).get("layers") or []
     if not layers or not layers[0].get("raster_key"):
         return job_id, None
-    img = httpx.get(
-        f"{api_url}/generate/{job_id}/raster/{layers[0]['layer_id']}",
-        headers=headers,
-        timeout=60,
+    img = _retrying(
+        lambda: httpx.get(
+            f"{api_url}/generate/{job_id}/raster/{layers[0]['layer_id']}",
+            headers=headers,
+            timeout=60,
+        )
     )
     img.raise_for_status()
     return job_id, img.content
