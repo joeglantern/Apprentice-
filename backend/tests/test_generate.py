@@ -418,6 +418,26 @@ def test_run_generation_null_renderer_falls_back_to_colour(storage: FakeStorage)
     assert storage.objects == {}
 
 
+def test_run_generation_null_renderer_fails_pure_image_job(storage: FakeStorage) -> None:
+    settings = Settings(database_url="sqlite://")
+    with pytest.raises(RuntimeError, match="no image"):
+        run_generation(
+            job_id="33333333-3333-4333-8333-333333333333",
+            prompt="A market scene at dusk",
+            width=1024,
+            height=1024,
+            aesthetic_version="baseline",
+            lora_file=None,
+            profile=None,
+            settings=settings,
+            renderer=NullRenderer(),
+            storage=SyncStorage(storage),
+            progress=lambda stage, data: None,
+            kind="image",
+        )
+    assert storage.objects == {}
+
+
 async def test_generate_routes(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     import app.routes.generate as gen_mod
 

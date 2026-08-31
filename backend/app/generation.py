@@ -108,6 +108,11 @@ def run_generation(
             storage.put(key, data, "image/png")
             layer["raster_key"] = key
             layer["raster_url"] = f"/generate/{job_id}/raster/{layer['layer_id']}"
+        elif kind in ("image", "logo"):
+            # A poster can degrade to a colour fill and still be a design; here the
+            # raster is the whole deliverable, so a lost renderer means a failed job,
+            # not a blank canvas marked done.
+            raise RuntimeError(f"Renderer {renderer.name} returned no image; retry the job")
         else:
             layer["color"] = {"hex": (plan.palette_intent or ["#CCCCCC"])[-1], "opacity": 0.35}
         progress("render", {"message": f"Rendered {i}/{len(image_layers)}", "step": i})
