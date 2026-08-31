@@ -78,7 +78,9 @@ class Settings(BaseSettings):
     # FaceDetailer. Fixes the few-pixels-per-face mush; needs the Impact Pack
     # loaded on the Legion. Off for Flux renders (scene_text), which are cleaner.
     face_detail: bool = True
-    face_detail_denoise: float = 0.45
+    # 0.45 grafted repeating fabric texture onto large already-clean RealVisXL
+    # faces (docs/06 D20); 0.25 leaves those alone while still fixing small ones.
+    face_detail_denoise: float = 0.25
     # Same mechanism pointed at hands (hand_yolov8s), gentler denoise - hands need
     # correcting geometry, not re-imagining texture.
     hand_detail: bool = True

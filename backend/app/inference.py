@@ -251,7 +251,7 @@ def sdxl_workflow(
     hires_denoise: float = 0.4,
     hires_steps: int = 12,
     face_detail: bool = False,
-    face_detail_denoise: float = 0.45,
+    face_detail_denoise: float = 0.25,
     hand_detail: bool = False,
     hand_detail_denoise: float = 0.35,
 ) -> dict[str, Any]:
@@ -433,7 +433,7 @@ class ComfyRenderer:
         hires_steps: int = 12,
         flux: dict[str, Any] | None = None,
         face_detail: bool = False,
-        face_detail_denoise: float = 0.45,
+        face_detail_denoise: float = 0.25,
         hand_detail: bool = False,
         hand_detail_denoise: float = 0.35,
     ) -> None:
