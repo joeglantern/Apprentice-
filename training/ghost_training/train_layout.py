@@ -156,7 +156,9 @@ def main() -> int:
                 1, round(0.03 * args.epochs * math.ceil(len(rows) / (args.batch * args.grad_accum)))
             ),
             logging_steps=10,
-            save_strategy="epoch",
+            save_strategy="steps",
+            save_steps=50,
+            save_total_limit=2,
             bf16=True,
             gradient_checkpointing=True,
             optim="paged_adamw_8bit",
@@ -165,7 +167,9 @@ def main() -> int:
         train_dataset=ds,
         data_collator=DataCollatorForSeq2Seq(tokenizer, padding=True),
     )
-    trainer.train()
+    # A killed run picks up from its newest mid-run checkpoint instead of step 0.
+    last = max(out_dir.glob("checkpoint-*"), default=None, key=lambda p: int(p.name.split("-")[1]))
+    trainer.train(resume_from_checkpoint=str(last) if last else None)
     model.save_pretrained(out_dir / "final")
     tokenizer.save_pretrained(out_dir / "final")
     (out_dir / "run.json").write_text(
