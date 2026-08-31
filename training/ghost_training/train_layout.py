@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 from pathlib import Path
@@ -150,7 +151,10 @@ def main() -> int:
             gradient_accumulation_steps=args.grad_accum,
             learning_rate=args.lr,
             lr_scheduler_type="cosine",
-            warmup_ratio=0.03,
+            # transformers 5 dropped warmup_ratio; this is the old 0.03 as steps.
+            warmup_steps=max(
+                1, round(0.03 * args.epochs * math.ceil(len(rows) / (args.batch * args.grad_accum)))
+            ),
             logging_steps=10,
             save_strategy="epoch",
             bf16=True,
