@@ -519,3 +519,15 @@ portrait matrix across skin tones, ages, a group and a hands shot, rendered
 through the production pipeline and scored by the local VLM; the report carries
 the mean, the worst row, and the skin-tone spread as the bias signal. First
 baseline run pending a quiet render queue.
+
+The harness paid for itself on its first outing. Baseline and a rerun both came
+back mean 5.6-5.9 with the light-skin rows at 2: a repeating knit-weave texture
+grafted across otherwise clean faces. A dedicated face-prompt conditioning fix
+changed nothing, so the mechanism was hunted empirically: the same brief rendered
+three ways (face detail denoise 0.45, 0.25, and the pass disabled) showed 0.45
+producing the weave and both others clean. RealVisXL already renders large
+portrait faces well; the detail pass at 0.45 was re-imagining them and amplifying
+the model's fabric prior into skin. Default dropped to 0.25, which leaves large
+faces alone while still repairing the small-face mush the pass exists for.
+Post-fix matrix: mean 7.5 (from 5.62), worst row 7 (from 2), tone spread 0.0
+(from 4.0), and the previously failing rows verified clean by eye.
