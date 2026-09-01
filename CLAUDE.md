@@ -23,7 +23,9 @@ Read `docs/01_ARCHITECTURAL_BLUEPRINT.md` through `docs/05_SKILLS_AND_PLUGINS_SE
 before writing code in a subsystem for the first time, then
 `docs/06_DECISIONS_AND_RESOURCES.md` - decisions made during the build that
 override 01-05 where they differ (three-stage generation with an LLM
-"creative director", adopted repos, test hardware).
+"creative director", adopted repos, test hardware). `docs/07_QUALITY_STRATEGY.md`
+holds the standing answer to "how does this hardware compete with the big
+image models" - read it before proposing quality work.
 
 ## Non-negotiable: consent over the collector
 
