@@ -531,3 +531,22 @@ the model's fabric prior into skin. Default dropped to 0.25, which leaves large
 faces alone while still repairing the small-face mush the pass exists for.
 Post-fix matrix: mean 7.5 (from 5.62), worst row 7 (from 2), tone spread 0.0
 (from 4.0), and the previously failing rows verified clean by eye.
+
+## D21 - Layout pretrain v1 trained; paged optimizer crashed the machine (2026-09-01)
+
+The Crello layout pretrain (docs/06 D14) completed: Qwen2.5-VL-3B, qlora r16
+nf4, 1,877 layouts, 2 epochs, 236 steps in 1h52 on the Legion. Train loss
+2.3 to 0.69. Adapter and run.json at
+training/data/checkpoints/layout-pretrain-v1/final.
+
+Two launches before it died taught us the hard lesson: paged_adamw_8bit's
+unified-memory optimizer state hangs torch.save at every 50-step checkpoint
+on this machine and thrashes the whole system until it hard-crashes
+(Kernel-Power 41, twice, both at the step-50 save). Fixes that stuck: plain
+adamw_8bit (state on-GPU, saves normally), checkpoints every 50 steps with
+save_total_limit 2, resume that skips checkpoints lacking trainer_state.json,
+and the run launched detached via Start-Process so session restarts cannot
+kill it. Rule for every future run on this box: never paged optimizers.
+
+Smoke test and rules-vs-model comparison pending; the adapter is not wired
+into the backend yet.
