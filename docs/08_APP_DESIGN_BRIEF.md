@@ -4,23 +4,27 @@ Written 2026-09-01. The standing plan for the Expo app's look, structure, and
 naming. The app ships as one Expo Router codebase for iOS, Android, and web.
 Same look everywhere; only the layout responds to screen size and input type.
 
-## 1. Naming (pick one per column, nothing is final until the operator says so)
+## 1. Naming (working placeholders, nothing final until the operator says so)
 
-The project codename stays Ghost Agent internally. The public names should be
-short, ownable, and rooted where the work comes from. Swahili gives us words
-that sound like products and mean something:
+The project codename stays Ghost Agent internally. The target register is
+evocative and abstract, the way Anthropic, Opus, Fable, Midjourney, Qwen and
+Higgsfield read: borrowed from Latin, Greek, physics, and story language, not
+literal descriptions.
 
-| App name | Meaning | Model name | Meaning |
+| App name | Why | Model name | Why |
 |---|---|---|---|
-| Chapa | brand, stamp (Kenyan slang for a logo) | Roho | spirit, soul |
-| Sanaa | art, craft | Kivuli | shadow, silhouette |
-| Fundi | craftsman, the expert you call | Mzuka | ghost (sheng, also means vibe) |
-| Rangi | color | Fikra | idea, thought |
+| Umbra | Latin, the darkest part of a shadow | Eidolon | Greek, a phantom likeness of a person |
+| Vanta | from vantablack, the blackest material made | Sable | heraldic black, also the finest brush hair |
+| Noir | black, chic, instant aesthetic signal | Echo | the model echoes the designer's work |
+| Monolith | the mysterious black slab | Anima | Latin for soul |
+| Nocturne | a composition for the night | Specter | the ghost, straight up |
+| Gamut | the color range a device can render | Doppel | the designer's double |
 
-Suggested pairing: app **Chapa**, model **Roho**. "Chapa" is what the app
-makes; "Roho" is the learned spirit of the designer inside it, and versions
-cleanly (roho-layout-1, roho-style-1). Higgsfield naming their image model
-Soul shows this register works commercially.
+Working placeholders until decided: app **Umbra**, model **Eidolon**.
+Shadow and phantom fit a space black app running a designer's ghost, and
+eidolon versions cleanly (eidolon-layout-1, eidolon-style-1). Check
+trademark collisions before anything ships publicly; most single-word names
+have some existing use somewhere.
 
 ## 2. Design direction: space black
 
@@ -74,7 +78,7 @@ stock PNG.
 
 - Icons: Lucide (https://lucide.dev/), stroke width 1.5, never mixed with
   other sets. No sparkle icon for AI features; the model gets its own small
-  wordmark chip (ROHO in mono caps) instead.
+  wordmark chip (EIDOLON in mono caps) instead.
 - Empty states: real example generations from our own pipeline, not
   illustrations.
 - Never ship: stock 3D blob renders, glassmorphism cards, emoji in UI copy,
@@ -130,8 +134,8 @@ Purposeful only, reanimated springs, 150 to 250ms, standard easing:
 
 Paste-ready brief for generating mockups or building screens. Keep it intact:
 
-> Design [screen] for Chapa, a mobile and web app where a small creative team
-> generates on-brand graphics with a custom model called Roho. Space black
+> Design [screen] for Umbra, a mobile and web app where a small creative team
+> generates on-brand graphics with a custom model called Eidolon. Space black
 > interface: background #0A0A0B, surfaces #141416 and #1C1C1F, hairlines
 > #2A2A2E, warm off-white text #F2F2EF, secondary #9C9CA3, single accent
 > #E8FF47 used only for primary actions and progress. Flat solids, no
