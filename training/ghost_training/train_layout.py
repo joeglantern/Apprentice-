@@ -161,7 +161,11 @@ def main() -> int:
             save_total_limit=2,
             bf16=True,
             gradient_checkpointing=True,
-            optim="paged_adamw_8bit",
+            # paged_adamw_8bit's unified-memory state hung torch.save at every
+            # checkpoint and took the whole machine down twice (hard crash at the
+            # step-50 save both times). Non-paged 8-bit state is ~74MB on-GPU and
+            # saves normally.
+            optim="adamw_8bit",
             report_to=[],
         ),
         train_dataset=ds,
