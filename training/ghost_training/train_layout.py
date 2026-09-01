@@ -168,7 +168,13 @@ def main() -> int:
         data_collator=DataCollatorForSeq2Seq(tokenizer, padding=True),
     )
     # A killed run picks up from its newest mid-run checkpoint instead of step 0.
-    last = max(out_dir.glob("checkpoint-*"), default=None, key=lambda p: int(p.name.split("-")[1]))
+    # A power cut can truncate a checkpoint mid-save; only ones with a complete
+    # trainer_state.json are resumable.
+    last = max(
+        (p for p in out_dir.glob("checkpoint-*") if (p / "trainer_state.json").is_file()),
+        default=None,
+        key=lambda p: int(p.name.split("-")[1]),
+    )
     trainer.train(resume_from_checkpoint=str(last) if last else None)
     model.save_pretrained(out_dir / "final")
     tokenizer.save_pretrained(out_dir / "final")
