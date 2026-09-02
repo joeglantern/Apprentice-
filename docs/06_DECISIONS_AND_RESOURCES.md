@@ -550,3 +550,48 @@ kill it. Rule for every future run on this box: never paged optimizers.
 
 Smoke test and rules-vs-model comparison pending; the adapter is not wired
 into the backend yet.
+
+## D22 - Chat understands the message instead of guessing at it (2026-09-02)
+
+The chat screen wrote its own assistant lines and sent every free-text message
+to /generate, so "make the headline shorter" replaced the poster instead of
+changing it. The thread also lived in component state, which meant a reload lost
+the conversation while the jobs it produced survived.
+
+Now a turn is a request. POST /chat/{id}/turn hands the message, the last eight
+turns and a compressed summary of the open piece to a model that returns one
+structured object: an action (revise, edit_copy, new_direction, answer, clarify),
+its payload, and the sentence the user reads. Routing and reply come from the same
+call so the reply cannot promise one thing while the router does another.
+edit_copy patches the plan's text elements and reuses the photograph, which makes
+a copy change cost the type pass rather than a full render.
+
+Three rules the implementation holds to:
+
+- Fail closed. An unusable model answer, a job that has not finished, a thread at
+  its render cap - all degrade to `answer`. Nothing degrades to starting a render
+  nobody asked for.
+- The reply is written before the render runs, so it may only state an intent. A
+  second `landed` line, generated deterministically from what the job actually did,
+  is the only sentence allowed to describe a result. It is settled when the thread
+  is read, so the worker knows nothing about chat.
+- Quick-action chips carry their intent as a field and skip the model entirely.
+  A known intent should not be paid for twice, and cannot be misrouted.
+
+Two things that had to be measured rather than assumed, both in
+backend/tools/chat_route_eval.py:
+
+- Ollama's grammar compiler rejects minLength/maxLength with a 400 the ladder
+  reads as "model unreachable". The whole local path would have sat silently in
+  the deterministic fallback. The schema sent as `format` is now stripped of
+  validation-only keywords; Pydantic still checks the values on the way back.
+- Model choice. On the fifteen-message routing set, qwen3:8b (thinking off)
+  routes 15/15 with a median 1.1s resident; qwen2.5:7b-instruct, the director's
+  model, routes 6/15 and five of its answers fail validation twice over. CHAT_MODEL
+  therefore defaults to qwen3:8b, separately from LOCAL_DIRECTOR_MODEL. Field order
+  in the response schema is load-bearing for the same reason: `action` is emitted
+  before `reply`, so the sentence is written knowing the route.
+
+Claude stays the top of the ladder when a key is set, at effort low rather than
+the director's high - a turn is one routing decision and a sentence, and it sits
+on the path of every message.

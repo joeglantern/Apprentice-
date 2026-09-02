@@ -83,3 +83,42 @@ class Checkpoint(SQLModel, table=True):
     pushed_by: str = Field(max_length=100)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ChatThread(SQLModel, table=True):
+    """One conversation about one evolving piece.
+
+    The thread owns the piece rather than the other way round: `active_job_id` moves
+    forward every time a turn produces a render, and the jobs it has produced are the
+    version chips in the UI. Kept server-side because the app used to hold the thread
+    in component state, which meant a reload lost the conversation while the jobs it
+    made survived - the two halves of the same history disagreeing.
+    """
+
+    __tablename__ = "chat_threads"
+
+    thread_id: str = Field(primary_key=True, max_length=36)
+    owner: str = Field(index=True, max_length=100)
+    active_job_id: str | None = Field(default=None, max_length=36)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ChatMessage(SQLModel, table=True):
+    """One turn. `action` and `job_id` are set on assistant turns that did work.
+
+    `landed` is the second sentence, written when the job finished - the reply itself
+    is composed before the render runs and is only ever allowed to state an intent, so
+    this is the only field that speaks about a result.
+    """
+
+    __tablename__ = "chat_messages"
+
+    message_id: str = Field(primary_key=True, max_length=36)
+    thread_id: str = Field(index=True, max_length=36, foreign_key="chat_threads.thread_id")
+    role: str = Field(max_length=16)  # user | assistant
+    text: str
+    action: str | None = Field(default=None, max_length=16)
+    job_id: str | None = Field(default=None, max_length=36)
+    landed: str | None = None
+    created_at: datetime = Field(default_factory=utcnow, index=True)

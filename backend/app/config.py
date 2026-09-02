@@ -91,6 +91,29 @@ class Settings(BaseSettings):
     render_candidates: int = 1
     critic_model: str = "qwen2.5vl:3b"
 
+    # Chat (docs/06 D22): the conversational turn on the chat screen. Same backend
+    # ladder as the director - Claude if a key is set, else the local model, else
+    # deterministic keyword routing - but a different, cheaper effort level, because
+    # a turn is one routing decision plus a sentence and it sits on the path of every
+    # message someone sends.
+    chat_effort: str = "low"
+    # Measured, not assumed. On a 15-message routing set (2026-09-02, RTX 5060 8GB)
+    # qwen3:8b with thinking off routed 15/15 with no unusable answers and a median
+    # 1.5s once resident; the director's qwen2.5:7b-instruct managed 6/15 on the same
+    # set and returned five answers that failed schema validation twice over. Keep
+    # chat_keep_alive generous - the first turn after an unload costs ~8s instead.
+    # Empty falls back to local_director_model.
+    chat_model: str = "qwen3:8b"
+    # Ollama unloads an idle model; without this every turn pays a cold load.
+    chat_keep_alive: str = "10m"
+    chat_timeout_s: float = 90.0
+    # Turns of thread history sent to the model. Small on purpose: the piece summary
+    # already carries the state, and a 7B model's instruction following degrades long
+    # before its context window fills.
+    chat_history_turns: int = 8
+    # Guard against a routing loop turning a chat thread into a render queue.
+    chat_max_jobs_per_thread: int = 40
+
     def agent_token_map(self) -> dict[str, str]:
         """token -> agent_id"""
         out: dict[str, str] = {}
