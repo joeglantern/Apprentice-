@@ -21,6 +21,7 @@ import {
 } from "react-native";
 
 import { DenoisingPreview } from "@/components/ui/DenoisingPreview";
+import { Enter } from "@/components/ui/Enter";
 import { Icon } from "@/components/ui/Icon";
 import { JobArtwork } from "@/components/ui/JobArtwork";
 import { OutlineChip, Pill, Segmented } from "@/components/ui/controls";
@@ -31,7 +32,8 @@ import { useToast } from "@/components/ui/Toast";
 import { Body, Mono } from "@/components/ui/type";
 import { VoidStage } from "@/components/ui/VoidStage";
 import { useAesthetics } from "@/hooks/useAesthetics";
-import { useGenerate } from "@/hooks/useGenerate";
+import { useSessionGenerate } from "@/hooks/useSessionGenerate";
+import { useThread } from "@/hooks/useThread";
 import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import { useJob } from "@/hooks/useJob";
 import { useJobCover } from "@/hooks/useJobCover";
@@ -60,11 +62,15 @@ export default function CreateScreen() {
   const router = useRouter();
   const toast = useToast();
 
-  const { kind, setKind, size, setSize, aesthetic, setAesthetic, kitId, setKitId, activeJobId, setActiveJobId } =
+  const { kind, setKind, size, setSize, aesthetic, setAesthetic, kitId, setKitId, activeJobId, setActiveJobId, newSession } =
     useSession();
 
   const [prompt, setPrompt] = useState("");
-  const generate = useGenerate();
+  // What was asked for, kept so the stage can echo it and a failed request can hand
+  // the words back to the deck.
+  const [asked, setAsked] = useState("");
+  const generate = useSessionGenerate();
+  const session = useThread(activeJobId);
 
   const { data: job } = useJob(activeJobId);
   const event = useGenerationProgress(activeJobId);
@@ -89,6 +95,8 @@ export default function CreateScreen() {
     if (text.length < 3 || generate.isPending) return;
     // Get out of the way so the stage is visible the moment work starts.
     Keyboard.dismiss();
+    setAsked(text);
+    setPrompt("");
     generate.mutate(
       {
         prompt: text,
@@ -97,9 +105,16 @@ export default function CreateScreen() {
         size: SIZE_PX[size],
         brand: findKit(kitId),
       },
-      { onSuccess: (accepted) => setActiveJobId(accepted.job_id) },
+      // The request never landed, so hand the words back rather than eating them.
+      { onError: () => setPrompt((d) => (d ? d : text)) },
     );
   };
+
+  const runs = useMemo(
+    () => Array.from(new Set(session.messages.map((m) => m.job_id).filter((id): id is string => !!id))),
+    [session.messages],
+  );
+  const shown = activeJobId;
 
   const stageH = Math.min(height * 0.52, 480);
 
@@ -115,18 +130,23 @@ export default function CreateScreen() {
           accessible={false}
         >
           {phase === "idle" ? (
-            <View style={styles.idle}>
+            <Enter style={styles.idle}>
               <Pulse durationMs={3500} min={0.35}>
                 <EidolonMark size={52} color={c.accent} />
               </Pulse>
               <Mono size={11} color={c.t4}>
                 describe the piece. eidolon does the rest.
               </Mono>
-            </View>
+            </Enter>
           ) : null}
 
           {phase === "running" ? (
-            <View style={styles.running}>
+            <Enter style={styles.running}>
+              {asked ? (
+                <Body size={13.5} color={c.t2} numberOfLines={2} style={styles.echo}>
+                  {asked}
+                </Body>
+              ) : null}
               <DenoisingPreview
                 source={cover ? { uri: cover } : undefined}
                 pct={progress.pct}
@@ -140,11 +160,11 @@ export default function CreateScreen() {
                   {progress.pct}%
                 </Mono>
               </View>
-            </View>
+            </Enter>
           ) : null}
 
           {phase === "done" ? (
-            <View style={styles.running}>
+            <Enter style={styles.running}>
               {activeJobId ? (
                 <JobArtwork
                   jobId={activeJobId}
@@ -168,7 +188,30 @@ export default function CreateScreen() {
                 <Pill label="open in canvas" height={30} onPress={() => router.push("/canvas")} />
                 <Pill label="export png" height={30} tone="accent" onPress={() => toast("exported png to photos")} />
               </View>
-            </View>
+
+              {runs.length > 1 ? (
+                <View style={styles.runs}>
+                  {runs.map((id, i) => {
+                    const on = id === shown;
+                    return (
+                      <PressScale
+                        key={id}
+                        scale={0.95}
+                        onPress={() => setActiveJobId(id)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: on }}
+                        style={[styles.run, on && { backgroundColor: c.raise }]}
+                      >
+                        <Mono size={10} color={on ? c.t1 : c.t4}>
+                          v{i + 1}
+                        </Mono>
+                      </PressScale>
+                    );
+                  })}
+                  <Pill label="new session" height={26} onPress={newSession} style={styles.newSession} />
+                </View>
+              ) : null}
+            </Enter>
           ) : null}
 
           {phase === "error" ? (
@@ -275,7 +318,13 @@ export default function CreateScreen() {
                 disabled={generate.isPending}
                 style={[styles.go, { backgroundColor: c.accent, opacity: generate.isPending ? 0.5 : 1 }]}
               >
-                <Icon name="arrowUp" size={18} color={c.bg0} strokeWidth={2} />
+                {generate.isPending ? (
+                  <Pulse durationMs={1200}>
+                    <EidolonMark size={18} color={c.bg0} />
+                  </Pulse>
+                ) : (
+                  <Icon name="arrowUp" size={18} color={c.bg0} strokeWidth={2} />
+                )}
               </PressScale>
             </View>
           </View>
@@ -360,6 +409,10 @@ const styles = StyleSheet.create({
   stage: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, paddingTop: 32, paddingBottom: 24 },
   stageFloatingDeck: { paddingBottom: 220 },
   idle: { alignItems: "center", gap: 14 },
+  echo: { textAlign: "center", maxWidth: 520 },
+  runs: { flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" },
+  run: { borderRadius: radii.chip, paddingHorizontal: 9, paddingVertical: 3 },
+  newSession: { marginLeft: 6 },
   errorReason: { textAlign: "center", paddingHorizontal: 24 },
   running: { alignItems: "center", gap: 16, maxWidth: "100%" },
   preview: {
