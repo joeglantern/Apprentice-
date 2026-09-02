@@ -14,7 +14,7 @@
  * back a step is picking v1 rather than undoing anything. */
 
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Image,
   Keyboard,
@@ -27,6 +27,7 @@ import {
 } from "react-native";
 
 import { DenoisingPreview } from "@/components/ui/DenoisingPreview";
+import { Enter } from "@/components/ui/Enter";
 import { Icon } from "@/components/ui/Icon";
 import { JobArtwork } from "@/components/ui/JobArtwork";
 import { Pill, QuickChip } from "@/components/ui/controls";
@@ -36,6 +37,7 @@ import { Pulse } from "@/components/ui/Pulse";
 import { useToast } from "@/components/ui/Toast";
 import { Body, Mono, MonoLabel } from "@/components/ui/type";
 import { useChat } from "@/hooks/useChat";
+import { useArrivals } from "@/hooks/useArrivals";
 import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import { useJob } from "@/hooks/useJob";
 import { useJobCover } from "@/hooks/useJobCover";
@@ -74,39 +76,47 @@ export default function ChatScreen() {
   const [viewing, setViewing] = useState<{ jobId: string; under: string | null } | null>(null);
   const scroller = useRef<ScrollView>(null);
 
-  // The thread owns which piece is open; the rest of the app reads that from the
-  // session, so a turn that lands a new render moves the canvas with it.
-  useEffect(() => {
-    if (chat.activeJobId && chat.activeJobId !== activeJobId) setActiveJobId(chat.activeJobId);
-  }, [chat.activeJobId, activeJobId, setActiveJobId]);
-
   const shownJobId =
     viewing && viewing.under === chat.activeJobId ? viewing.jobId : chat.activeJobId;
   const cover = useJobCover(shownJobId ?? "");
+
+  const arriving = useArrivals(
+    useMemo(
+      () => chat.messages.filter((m) => m.role !== "user").map((m) => m.message_id),
+      [chat.messages],
+    ),
+  );
 
   const versions = useMemo(
     () => chat.messages.map((m) => m.job_id).filter((id): id is string => !!id),
     [chat.messages],
   );
 
-  const turn = (message: string, quick?: QuickAction) => {
-    if (!chat.ready || chat.sending) return;
-    chat.send({
-      message,
-      quick,
-      aestheticVersion: aesthetic,
-      kind,
-      width: SIZE_PX[size][0],
-      height: SIZE_PX[size][1],
-    });
+  const turn = (message: string, quick?: QuickAction, onFailed?: () => void) => {
+    if (chat.sending) return false;
+    chat.send(
+      {
+        message,
+        quick,
+        aestheticVersion: aesthetic,
+        kind,
+        width: SIZE_PX[size][0],
+        height: SIZE_PX[size][1],
+      },
+      { onError: onFailed },
+    );
+    return true;
   };
 
   const send = () => {
     const text = draft.trim();
     if (!text) return;
+    // Clear only once the send is actually going out, and hand the words back if the
+    // request never lands. Clearing first meant a message typed while one was already
+    // in flight was silently destroyed, and a failed send lost what you had written.
+    if (!turn(text, undefined, () => setDraft((d) => (d ? d : text)))) return;
     Keyboard.dismiss();
     setDraft("");
-    turn(text);
   };
 
   const rendering = !!chat.activeJobId && progress.status !== "done" && progress.status !== "error";
@@ -143,17 +153,24 @@ export default function ChatScreen() {
 
           {chat.messages.map((m) =>
             m.role === "user" ? (
-              <View key={m.message_id} style={[styles.userBubble, { backgroundColor: c.raise }]}>
+              // The one in flight is dimmed rather than replaced, so when the server
+              // returns its own copy nothing moves and the swap is invisible.
+              <Enter
+                key={m.message_id}
+                disabled={m.message_id !== chat.pendingId}
+                style={[
+                  styles.userBubble,
+                  { backgroundColor: c.raise, opacity: m.message_id === chat.pendingId ? 0.72 : 1 },
+                ]}
+              >
                 <Body size={type.bodySM} style={styles.bubbleText}>
                   {m.text}
                 </Body>
-              </View>
+              </Enter>
             ) : (
-              <AssistantTurn
-                key={m.message_id}
-                message={m}
-                onOpen={() => m.job_id && openCanvas(m.job_id)}
-              />
+              <Enter key={m.message_id} disabled={!arriving.has(m.message_id)}>
+                <AssistantTurn message={m} onOpen={() => m.job_id && openCanvas(m.job_id)} />
+              </Enter>
             ),
           )}
 

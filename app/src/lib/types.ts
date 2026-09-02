@@ -154,4 +154,14 @@ export interface ChatThread {
 
 /** A quick-action chip. Its intent is known from the button, so the server carries it
  * out without a model call - the chips stay instant and cannot be misrouted. */
+/** A row in the session list. The title is derived server-side from the piece the
+ * session is about, so it changes as the work does. */
+export interface ThreadSummary {
+  thread_id: string;
+  active_job_id: string | null;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type QuickAction = "swap_photo" | "recompose";

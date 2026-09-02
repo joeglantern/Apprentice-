@@ -1,13 +1,13 @@
-/** Client-side session state: the selections that travel between screens, plus the
- * two flags that persist across launches.
+/** Client-side session state: the selections that travel between screens, the
+ * session being worked in, and the few preferences that outlive a launch.
  *
- * Server state (jobs, aesthetics, progress) is not here - that stays in the
- * existing react-query hooks. This holds only what the user has picked. */
+ * Server state (jobs, threads, aesthetics, progress) is not here - that stays in the
+ * react-query hooks. This holds only what the user has chosen. */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { configureApi } from "@/lib/api";
+import { KEYS, readMany, remove, write } from "@/lib/storage";
 import type { JobKind } from "@/lib/types";
 
 export type SizeKey = "1:1" | "4:5" | "16:9" | "9:16";
@@ -34,17 +34,28 @@ interface Session {
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
 
+  /** The conversation create and chat are both working in. Persisted, so closing
+   * the app and coming back continues where you were instead of starting over. */
+  threadId: string | null;
+  setThreadId: (id: string | null) => void;
+  /** Put down the current session. The next send or generate starts a new one
+   * lazily, so an empty session can never exist. */
+  newSession: () => void;
+
+  /** null means "no stated preference", which the rail reads as "decide from the
+   * window width". Only an explicit toggle writes it. */
+  railExpanded: boolean | null;
+  setRailExpanded: (open: boolean) => void;
+
   authed: boolean;
   onboarded: boolean;
-  /** Null until the persisted flags have been read; screens wait rather than
-   * flashing onboarding at someone who has already done it. */
+  /** False until the persisted values have been read; the app waits rather than
+   * flashing onboarding at someone who finished it three launches ago. */
   ready: boolean;
   completeAuth: () => Promise<void>;
   completeOnboarding: (apiBaseUrl?: string, token?: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
-
-const KEYS = { authed: "umbra-authed", onboarded: "umbra-onboarded", server: "umbra-server", token: "umbra-token" };
 
 const SessionContext = createContext<Session | null>(null);
 
@@ -57,6 +68,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [aesthetic, setAesthetic] = useState("baseline");
   const [kitId, setKitId] = useState("none");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [threadId, setThread] = useState<string | null>(null);
+  const [railExpanded, setRail] = useState<boolean | null>(null);
 
   const [authed, setAuthed] = useState(false);
   const [onboarded, setOnboarded] = useState(false);
@@ -65,46 +78,54 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        const [a, o, s, t] = await AsyncStorage.multiGet([
-          KEYS.authed,
-          KEYS.onboarded,
-          KEYS.server,
-          KEYS.token,
-        ]);
-        if (!alive) return;
-        // Before anything can fetch: what onboarding saved outranks the build-time env.
-        configureApi(s[1] ?? undefined, t[1] ?? undefined);
-        setAuthed(a[1] === "1");
-        setOnboarded(o[1] === "1");
-      } catch {
-        // Storage unavailable (private mode, first run on web): treat as a fresh
-        // install rather than blocking the app.
-      } finally {
-        if (alive) setReady(true);
-      }
+      const v = await readMany([
+        KEYS.authed,
+        KEYS.onboarded,
+        KEYS.server,
+        KEYS.token,
+        KEYS.thread,
+        KEYS.rail,
+      ]);
+      if (!alive) return;
+      // Before anything can fetch: what onboarding saved outranks the build-time env.
+      configureApi(v[KEYS.server] ?? undefined, v[KEYS.token] ?? undefined);
+      setAuthed(v[KEYS.authed] === "1");
+      setOnboarded(v[KEYS.onboarded] === "1");
+      setThread(v[KEYS.thread]);
+      setRail(v[KEYS.rail] === null ? null : v[KEYS.rail] === "expanded");
+      setReady(true);
     })();
     return () => {
       alive = false;
     };
   }, []);
 
+  const setThreadId = useCallback((id: string | null) => {
+    setThread(id);
+    void write(KEYS.thread, id);
+  }, []);
+
+  const newSession = useCallback(() => {
+    setThreadId(null);
+    setActiveJobId(null);
+  }, [setThreadId]);
+
+  const setRailExpanded = useCallback((open: boolean) => {
+    setRail(open);
+    void write(KEYS.rail, open ? "expanded" : "collapsed");
+  }, []);
+
   const completeAuth = useCallback(async () => {
     setAuthed(true);
-    try {
-      await AsyncStorage.setItem(KEYS.authed, "1");
-    } catch {}
+    await write(KEYS.authed, "1");
   }, []);
 
   const completeOnboarding = useCallback(async (apiBaseUrl?: string, token?: string) => {
     configureApi(apiBaseUrl, token);
     setOnboarded(true);
-    try {
-      const writes: [string, string][] = [[KEYS.onboarded, "1"]];
-      if (apiBaseUrl) writes.push([KEYS.server, apiBaseUrl]);
-      if (token) writes.push([KEYS.token, token]);
-      await AsyncStorage.multiSet(writes);
-    } catch {}
+    await write(KEYS.onboarded, "1");
+    if (apiBaseUrl) await write(KEYS.server, apiBaseUrl);
+    if (token) await write(KEYS.token, token);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -115,18 +136,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setAuthed(false);
     setOnboarded(false);
     setActiveJobId(null);
-    try {
-      await AsyncStorage.multiRemove([KEYS.authed, KEYS.onboarded, KEYS.server, KEYS.token]);
-    } catch {}
+    setThread(null);
+    await remove([KEYS.authed, KEYS.onboarded, KEYS.server, KEYS.token, KEYS.thread]);
   }, []);
 
   const value = useMemo<Session>(
     () => ({
       kind, setKind, size, setSize, aesthetic, setAesthetic, kitId, setKitId,
       activeJobId, setActiveJobId,
+      threadId, setThreadId, newSession,
+      railExpanded, setRailExpanded,
       authed, onboarded, ready, completeAuth, completeOnboarding, signOut,
     }),
-    [kind, size, aesthetic, kitId, activeJobId, authed, onboarded, ready, completeAuth, completeOnboarding, signOut],
+    [
+      kind, size, aesthetic, kitId, activeJobId, threadId, setThreadId, newSession,
+      railExpanded, setRailExpanded, authed, onboarded, ready,
+      completeAuth, completeOnboarding, signOut,
+    ],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

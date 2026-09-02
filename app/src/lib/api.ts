@@ -12,6 +12,7 @@ import type {
   JobKind,
   JobSummary,
   QuickAction,
+  ThreadSummary,
 } from "./types";
 
 /** On a phone, "localhost" is the phone - not the machine running the tunnel, which
@@ -73,17 +74,30 @@ function headers(): HeadersInit {
   return h;
 }
 
-async function unwrap<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      if (body?.detail) detail = body.detail;
-    } catch {
-      // response wasn't JSON; keep statusText
-    }
-    throw new Error(`${res.status} ${detail}`);
+/** Carries the status so callers can tell "gone" from "broken" without parsing a
+ * message. A resumed session that 404s should be forgotten, not retried. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    detail: string,
+  ) {
+    super(`${status} ${detail}`);
+    this.name = "ApiError";
   }
+}
+
+async function detailOf(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: string };
+    if (body?.detail) return body.detail;
+  } catch {
+    // response wasn't JSON; fall through to statusText
+  }
+  return res.statusText;
+}
+
+async function unwrap<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new ApiError(res.status, await detailOf(res));
   return res.json() as Promise<T>;
 }
 
@@ -152,16 +166,51 @@ export async function deleteJob(jobId: string): Promise<void> {
     method: "DELETE",
     headers: headers(),
   });
-  if (!res.ok && res.status !== 404) {
-    let detail = res.statusText;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      if (body?.detail) detail = body.detail;
-    } catch {
-      // not JSON; keep statusText
-    }
-    throw new Error(`${res.status} ${detail}`);
-  }
+  // A job that is already gone is the outcome the caller wanted.
+  if (!res.ok && res.status !== 404) throw new ApiError(res.status, await detailOf(res));
+}
+
+/** Sessions, newest first, named after the piece each is about. */
+export async function listThreads(limit = 30): Promise<ThreadSummary[]> {
+  const res = await fetch(`${base()}/chat?limit=${limit}`, { headers: headers() });
+  return unwrap<ThreadSummary[]>(res);
+}
+
+/** Forgets the conversation. The pieces it made stay in explore. */
+export async function deleteThread(threadId: string): Promise<void> {
+  const res = await fetch(`${base()}/chat/${threadId}`, { method: "DELETE", headers: headers() });
+  if (!res.ok && res.status !== 404) throw new ApiError(res.status, await detailOf(res));
+}
+
+/** Start a piece from the create deck inside a session.
+ *
+ * Not takeTurn: a turn asks the model what the message meant and can decide it was a
+ * question, which is right for chat and wrong for a button that says generate. This
+ * one always renders, and carries the deck's brand kit and size, which a turn cannot. */
+export async function generateInThread(
+  threadId: string,
+  body: {
+    prompt: string;
+    aestheticVersion: string;
+    kind: JobKind;
+    width: number;
+    height: number;
+    brand?: BrandKit;
+  },
+): Promise<ChatThread> {
+  const res = await fetch(`${base()}/chat/${threadId}/generate`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({
+      prompt: body.prompt,
+      aesthetic_version: body.aestheticVersion,
+      kind: body.kind,
+      width: body.width,
+      height: body.height,
+      brand: body.brand ?? null,
+    }),
+  });
+  return unwrap<ChatThread>(res);
 }
 
 export function socketBaseUrl(): string {
