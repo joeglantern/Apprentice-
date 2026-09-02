@@ -159,6 +159,19 @@ export async function reviseJob(
   return unwrap<GenerateAccepted>(res);
 }
 
+/** Stop a generation that is queued or running.
+ *
+ * Not instant: the worker notices at its next stage boundary or render poll, tells
+ * the GPU to stop, and unwinds. The job is terminal from the moment this returns,
+ * which is what lets the app stop waiting on it and lets it be deleted. */
+export async function cancelJob(jobId: string): Promise<Job> {
+  const res = await fetch(`${base()}/generate/${jobId}/cancel`, {
+    method: "POST",
+    headers: headers(),
+  });
+  return unwrap<Job>(res);
+}
+
 /** Remove a generation and the images only it was using. 409 while it is still
  * running, which the caller should surface rather than retry. */
 export async function deleteJob(jobId: string): Promise<void> {

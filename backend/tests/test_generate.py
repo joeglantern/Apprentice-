@@ -366,6 +366,7 @@ class FakeRenderer:
         height: int,
         lora: str | None,
         scene_text: str | None = None,
+        should_cancel: object = None,
     ) -> bytes | None:
         self.calls.append((prompt, width, height, lora))
         return b"\x89PNG-fake"
@@ -1031,3 +1032,102 @@ def test_the_sweeper_fails_only_jobs_that_have_gone_quiet(
         assert s.get(Job, "stale").status == "error"
         assert s.get(Job, "fresh").status == "render", "a live render must be left alone"
         assert s.get(Job, "settled").status == "done"
+
+
+# --- cancelling ------------------------------------------------------------------
+
+
+async def test_cancelling_a_queued_job_makes_it_terminal(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    jid = "66666666-6666-4666-8666-666666666661"
+    async with session_maker() as s:
+        s.add(_done_job(jid, "mac-m4", [], status="queued"))
+        await s.commit()
+
+    r = await client.post(f"/generate/{jid}/cancel", headers=AUTH_A)
+    assert r.status_code == 200
+    assert r.json()["status"] == "cancelled"
+
+
+async def test_a_cancelled_job_can_be_deleted(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Cancelling is what unblocks deleting: a running job is refused because removing
+    it would pull the ground from under the worker, and cancel is how you stop it."""
+    jid = "66666666-6666-4666-8666-666666666662"
+    async with session_maker() as s:
+        s.add(_done_job(jid, "mac-m4", [], status="render"))
+        await s.commit()
+
+    assert (await client.delete(f"/generate/{jid}", headers=AUTH_A)).status_code == 409
+    assert (await client.post(f"/generate/{jid}/cancel", headers=AUTH_A)).status_code == 200
+    assert (await client.delete(f"/generate/{jid}", headers=AUTH_A)).status_code == 204
+
+
+async def test_a_finished_job_cannot_be_cancelled(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    jid = "66666666-6666-4666-8666-666666666663"
+    async with session_maker() as s:
+        s.add(_done_job(jid, "mac-m4", [], status="done"))
+        await s.commit()
+    r = await client.post(f"/generate/{jid}/cancel", headers=AUTH_A)
+    assert r.status_code == 409
+    assert "done" in r.json()["detail"]
+
+
+async def test_cancelling_someone_elses_job_is_a_404(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    jid = "66666666-6666-4666-8666-666666666664"
+    async with session_maker() as s:
+        s.add(_done_job(jid, "mac-m4", [], status="queued"))
+        await s.commit()
+    assert (await client.post(f"/generate/{jid}/cancel", headers=AUTH_B)).status_code == 404
+
+
+def test_a_job_cancelled_in_the_queue_is_never_started(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cheapest cancel there is: the worker picks the job up, sees it is already
+    terminal, and puts it down without calling the director or the GPU."""
+    from contextlib import contextmanager
+
+    from sqlalchemy import create_engine
+    from sqlmodel import Session as SyncSession
+    from sqlmodel import SQLModel
+
+    from app import worker as worker_mod
+    from app.models import Job
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'cancel.db'}")
+    SQLModel.metadata.create_all(engine)
+
+    @contextmanager
+    def fake_session():
+        with SyncSession(engine) as s:
+            yield s
+
+    monkeypatch.setattr(worker_mod, "sync_session", fake_session)
+
+    def explode(**kwargs: object) -> None:
+        raise AssertionError("a cancelled job must not be generated")
+
+    monkeypatch.setattr("app.generation.run_generation", explode, raising=False)
+
+    with SyncSession(engine) as s:
+        s.add(
+            Job(
+                job_id="cancelled-in-queue",
+                prompt="a poster",
+                aesthetic_version="baseline",
+                width=1080,
+                height=1350,
+                requested_by="mac-m4",
+                status="cancelled",
+            )
+        )
+        s.commit()
+
+    assert worker_mod.generate_design("cancelled-in-queue") == "cancelled"

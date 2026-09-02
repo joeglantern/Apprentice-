@@ -11,8 +11,9 @@ from celery import Celery
 from sqlalchemy import create_engine
 from sqlmodel import Session, select
 
+from app.cancel import Cancelled
 from app.config import get_settings
-from app.models import Asset, Checkpoint, Job, utcnow
+from app.models import JOB_TERMINAL, Asset, Checkpoint, Job, utcnow
 from app.titles import from_prompt, make_title
 
 log = logging.getLogger(__name__)
@@ -97,10 +98,19 @@ def generate_design(self: Any, job_id: str) -> str:
 
     emitter = worker_emitter()
 
+    def cancelled() -> bool:
+        with sync_session() as s:
+            row = s.get(Job, job_id)
+            return row is not None and row.status == "cancelled"
+
     def progress(stage: str, data: dict[str, Any]) -> None:
         with sync_session() as s:
             row = s.get(Job, job_id)
-            if row is not None and row.status not in ("done", "error"):
+            # Someone stopped it between stages. Raising here unwinds the pipeline at
+            # a boundary rather than leaving a half-written stage behind.
+            if row is not None and row.status == "cancelled":
+                raise Cancelled
+            if row is not None and row.status not in JOB_TERMINAL:
                 row.status = stage
                 row.updated_at = utcnow()
                 s.add(row)
@@ -114,10 +124,11 @@ def generate_design(self: Any, job_id: str) -> str:
         job = session.get(Job, job_id)
         if job is None:
             return "missing"
-        if job.status in ("done", "error"):
+        if job.status in JOB_TERMINAL:
             # Celery redelivery (task_acks_late) after a worker crash mid-job must not
             # re-run a finished job: a second paid director call, a second render, and
-            # overwritten results the app may already be showing.
+            # overwritten results the app may already be showing. A job cancelled while
+            # it waited in the queue lands here too, and is simply never started.
             return job.status
         lora_file = None
         if job.aesthetic_version != "baseline":
@@ -153,6 +164,7 @@ def generate_design(self: Any, job_id: str) -> str:
             kind=kind,
             brand=brand,
             seeded_plan=seeded_plan,
+            should_cancel=cancelled,
             reuse_rasters=reuse_rasters,
             lora_file=lora_file,
             profile=profile,
@@ -161,6 +173,15 @@ def generate_design(self: Any, job_id: str) -> str:
             storage=SyncStorage(get_storage()),
             progress=progress,
         )
+    except Cancelled:
+        # Not a failure. The status is already "cancelled" (that is how the pipeline
+        # found out), so there is nothing to write; just stop and say so.
+        log.info("job %s cancelled", job_id)
+        try:
+            emitter.emit("progress", {"job_id": job_id, "stage": "cancelled"}, room=job_id)
+        except Exception:  # noqa: BLE001
+            pass
+        return "cancelled"
     except Exception as exc:  # noqa: BLE001
         with sync_session() as session:
             job = session.get(Job, job_id)
@@ -185,6 +206,12 @@ def generate_design(self: Any, job_id: str) -> str:
 
     with sync_session() as session:
         job = session.get(Job, job_id)
+        # A cancel that arrived during the last stretch still wins. The render is
+        # finished and stored either way, but flipping a job the person just stopped
+        # back to "done" would be the app overruling them.
+        if job is not None and job.status == "cancelled":
+            log.info("job %s finished after being cancelled; leaving it cancelled", job_id)
+            return "cancelled"
         if job is not None:
             job.plan = plan_dict
             job.result = result
@@ -228,7 +255,7 @@ def fail_stranded_jobs() -> int:
         stranded = list(
             session.exec(
                 select(Job).where(
-                    Job.status.not_in(("done", "error")),  # type: ignore[attr-defined]
+                    Job.status.not_in(JOB_TERMINAL),  # type: ignore[attr-defined]
                     Job.updated_at < cutoff,
                 )
             ).all()

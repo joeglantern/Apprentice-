@@ -32,6 +32,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Body, Mono } from "@/components/ui/type";
 import { VoidStage } from "@/components/ui/VoidStage";
 import { useAesthetics } from "@/hooks/useAesthetics";
+import { useCancelJob } from "@/hooks/useCancelJob";
 import { useSessionGenerate } from "@/hooks/useSessionGenerate";
 import { useThread } from "@/hooks/useThread";
 import { useGenerationProgress } from "@/hooks/useGenerationProgress";
@@ -70,6 +71,7 @@ export default function CreateScreen() {
   // the words back to the deck.
   const [asked, setAsked] = useState("");
   const generate = useSessionGenerate();
+  const cancel = useCancelJob();
   const session = useThread(activeJobId);
 
   const { data: job } = useJob(activeJobId);
@@ -88,7 +90,9 @@ export default function CreateScreen() {
       ? "done"
       : progress.status === "error"
         ? "error"
-        : "running";
+        : progress.status === "cancelled"
+          ? "cancelled"
+          : "running";
 
   const submit = () => {
     const text = prompt.trim();
@@ -159,6 +163,11 @@ export default function CreateScreen() {
                 <Mono size={10} color={c.accent}>
                   {progress.pct}%
                 </Mono>
+                <Pill
+                  label={cancel.isPending ? "stopping" : "stop"}
+                  height={26}
+                  onPress={() => activeJobId && cancel.mutate(activeJobId)}
+                />
               </View>
             </Enter>
           ) : null}
@@ -211,6 +220,18 @@ export default function CreateScreen() {
                   <Pill label="new session" height={26} onPress={newSession} style={styles.newSession} />
                 </View>
               ) : null}
+            </Enter>
+          ) : null}
+
+          {phase === "cancelled" ? (
+            <Enter style={styles.idle}>
+              <Body size={type.bodyMD} color={c.t2}>
+                stopped
+              </Body>
+              <Mono size={11} color={c.t4}>
+                nothing was charged to the queue past this point
+              </Mono>
+              <Pill label="start again" height={32} onPress={() => setActiveJobId(null)} />
             </Enter>
           ) : null}
 

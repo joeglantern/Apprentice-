@@ -31,7 +31,7 @@ from app.auth import verify_agent_token
 from app.chat import ChatTurn, apply_copy_edits, interpret, landed_line
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import ChatMessage, ChatThread, Checkpoint, Job
+from app.models import JOB_TERMINAL, ChatMessage, ChatThread, Checkpoint, Job
 from app.queue import enqueue_generation
 from app.routes.generate import BASELINE, GenerateRequest
 from app.schemas import UUID_PATTERN
@@ -40,7 +40,6 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 ThreadId = Annotated[str, Path(pattern=UUID_PATTERN)]
-TERMINAL = ("done", "error")
 
 
 COMPOSITIONS = ("anchor", "centered", "split")
@@ -124,7 +123,7 @@ async def _settle(messages: list[ChatMessage], session: AsyncSession) -> bool:
     changed = False
     for message in pending:
         job = await session.get(Job, message.job_id)
-        if job is None or job.status not in TERMINAL:
+        if job is None or job.status not in JOB_TERMINAL:
             continue
         # The stored action is enough to regenerate the sentence; the payload that
         # produced it is on the job itself.

@@ -6,7 +6,7 @@
  * only make the app say something less true than what is actually happening. The
  * percentage is ours, because the backend does not emit one. */
 
-import type { Job, JobStatus, ProgressEvent } from "./types";
+import { isTerminal, type Job, type JobStatus, type ProgressEvent } from "./types";
 
 /** Where each stage sits on the bar. Render is a band, walked by step/total. */
 const STAGE_PCT: Record<JobStatus, number> = {
@@ -16,6 +16,7 @@ const STAGE_PCT: Record<JobStatus, number> = {
   render: 66,
   done: 100,
   error: 100,
+  cancelled: 100,
 };
 
 const RENDER_BAND = 28; // render runs 66 -> 94, leaving the last stretch for the finish
@@ -27,6 +28,7 @@ const FALLBACK_MESSAGE: Record<JobStatus, string> = {
   render: "rendering",
   done: "done",
   error: "failed",
+  cancelled: "stopped",
 };
 
 export interface Progress {
@@ -38,8 +40,8 @@ export interface Progress {
 export function readProgress(job: Job | undefined, event: ProgressEvent | null): Progress {
   // The socket is ahead of the poll, so it wins while both are talking about a job
   // still in flight. A terminal job status always wins - it is the settled truth.
-  const status: JobStatus = job?.status === "done" || job?.status === "error"
-    ? job.status
+  const status: JobStatus = isTerminal(job?.status)
+    ? (job as Job).status
     : (event?.stage ?? job?.status ?? "queued");
 
   let pct = STAGE_PCT[status];

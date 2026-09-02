@@ -41,6 +41,11 @@ class Asset(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+# A job stops moving in exactly these states. Spelled once because "done or error"
+# was written out at eight call sites, and adding a third was going to miss one.
+JOB_TERMINAL = ("done", "error", "cancelled")
+
+
 class Job(SQLModel, table=True):
     """One generation request from the app; result holds the layers the canvas renders."""
 

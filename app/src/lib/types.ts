@@ -69,7 +69,22 @@ export interface GenerateResult {
   layers: Layer[];
 }
 
-export type JobStatus = "queued" | "planning" | "layout" | "render" | "done" | "error";
+export type JobStatus =
+  | "queued"
+  | "planning"
+  | "layout"
+  | "render"
+  | "done"
+  | "error"
+  | "cancelled";
+
+/** A job stops moving in exactly these states. Spelled once so that adding a fourth
+ * cannot miss one of the places that used to write "done or error" by hand. */
+export const JOB_TERMINAL: JobStatus[] = ["done", "error", "cancelled"];
+
+export function isTerminal(status: JobStatus | undefined): boolean {
+  return !!status && JOB_TERMINAL.includes(status);
+}
 
 /** A client's fixed identity: the director treats it as binding across a campaign. */
 export interface BrandKit {

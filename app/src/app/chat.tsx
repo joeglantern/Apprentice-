@@ -38,6 +38,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Body, Mono, MonoLabel } from "@/components/ui/type";
 import { useChat } from "@/hooks/useChat";
 import { useArrivals } from "@/hooks/useArrivals";
+import { useCancelJob } from "@/hooks/useCancelJob";
 import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import { useJob } from "@/hooks/useJob";
 import { useJobCover } from "@/hooks/useJobCover";
@@ -45,6 +46,7 @@ import { readProgress } from "@/lib/progress";
 import { isSubmitKey, noOutline } from "@/lib/styles";
 import { radii, type } from "@/lib/tokens";
 import type { ChatMessage, QuickAction } from "@/lib/types";
+import { isTerminal } from "@/lib/types";
 import { SIZE_PX, useSession } from "@/state/session";
 import { useTheme } from "@/theme/theme";
 
@@ -61,6 +63,7 @@ export default function ChatScreen() {
   const { c, isDesktop } = useTheme();
   const router = useRouter();
   const toast = useToast();
+  const cancel = useCancelJob();
 
   const { activeJobId, setActiveJobId, kind, size, aesthetic } = useSession();
   const chat = useChat(activeJobId);
@@ -119,7 +122,7 @@ export default function ChatScreen() {
     setDraft("");
   };
 
-  const rendering = !!chat.activeJobId && progress.status !== "done" && progress.status !== "error";
+  const rendering = !!chat.activeJobId && !isTerminal(progress.status);
   const working = chat.sending || rendering;
 
   return (
@@ -199,6 +202,12 @@ export default function ChatScreen() {
                       {progress.pct}%
                     </Mono>
                   </View>
+                  <Pill
+                    label={cancel.isPending ? "stopping" : "stop"}
+                    height={24}
+                    onPress={() => chat.activeJobId && cancel.mutate(chat.activeJobId)}
+                    style={styles.stop}
+                  />
                 </>
               ) : null}
             </View>
@@ -371,6 +380,7 @@ const styles = StyleSheet.create({
   bubbleText: { lineHeight: type.bodySM * 1.55 },
   threadCard: { width: 212, aspectRatio: 1080 / 1350, borderRadius: radii.card, overflow: "hidden" },
   workingLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: 212 },
+  stop: { alignSelf: "flex-start" },
 
   composerHost: { paddingHorizontal: 24, paddingBottom: 20, width: "100%", maxWidth: 600, alignSelf: "center" },
   composer: {

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useJobHistory } from "@/hooks/useJobHistory";
 import { radii, type } from "@/lib/tokens";
+import { isTerminal } from "@/lib/types";
 import { useSession } from "@/state/session";
 import { useTheme } from "@/theme/theme";
 
@@ -96,7 +97,7 @@ function useGoTo(pathname: string) {
 
 function useAnythingRunning() {
   const { data } = useJobHistory();
-  return !!data?.some((j) => j.status !== "done" && j.status !== "error");
+  return !!data?.some((j) => !isTerminal(j.status));
 }
 
 function Rail({ pathname }: { pathname: string }) {

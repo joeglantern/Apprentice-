@@ -17,11 +17,12 @@ import { Body, Display, Mono, MonoLabel } from "@/components/ui/type";
 import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import { useJob } from "@/hooks/useJob";
 import { useJobCover } from "@/hooks/useJobCover";
+import { useCancelJob } from "@/hooks/useCancelJob";
 import { useJobHistory } from "@/hooks/useJobHistory";
 import { readProgress } from "@/lib/progress";
 import { calendar, relative } from "@/lib/time";
 import { radii, type } from "@/lib/tokens";
-import type { JobStatus, JobSummary } from "@/lib/types";
+import { isTerminal, type JobStatus, type JobSummary } from "@/lib/types";
 import { useSession } from "@/state/session";
 import { useTheme } from "@/theme/theme";
 
@@ -45,7 +46,7 @@ export default function JobsScreen() {
     return {
       running: all.filter((j) => RUNNING.includes(j.status)),
       queued: all.filter((j) => j.status === "queued"),
-      history: all.filter((j) => j.status === "done" || j.status === "error"),
+      history: all.filter((j) => isTerminal(j.status)),
     };
   }, [data]);
 
@@ -113,6 +114,7 @@ export default function JobsScreen() {
 
 function RunningCard({ job }: { job: JobSummary }) {
   const { c } = useTheme();
+  const cancel = useCancelJob();
   const { data: full } = useJob(job.job_id);
   const event = useGenerationProgress(job.job_id);
   const progress = readProgress(full, event);
@@ -133,9 +135,16 @@ function RunningCard({ job }: { job: JobSummary }) {
           <Mono size={10} color={c.t4}>
             {shortId(job.job_id)}
           </Mono>
-          <Body size={11} color={c.t4} style={styles.tabular}>
-            {relative(job.created_at)}
-          </Body>
+          <View style={styles.cardTopRight}>
+            <Body size={11} color={c.t4} style={styles.tabular}>
+              {relative(job.created_at)}
+            </Body>
+            <Pill
+              label={cancel.isPending ? "stopping" : "stop"}
+              height={24}
+              onPress={() => cancel.mutate(job.job_id)}
+            />
+          </View>
         </View>
 
         <Body size={type.bodyMD} numberOfLines={1}>
@@ -179,21 +188,27 @@ function HistoryRow({ job }: { job: JobSummary }) {
   const router = useRouter();
   const { setActiveJobId } = useSession();
   const failed = job.status === "error";
-  const cover = useJobCover(failed ? "" : job.job_id);
+  const stopped = job.status === "cancelled";
+  // Neither has a piece to open: one broke, the other never finished.
+  const cover = useJobCover(failed || stopped ? "" : job.job_id);
 
   return (
     <PressScale
       scale={0.99}
-      disabled={failed}
+      disabled={failed || stopped}
       onPress={() => {
         setActiveJobId(job.job_id);
         router.push("/canvas");
       }}
       style={[styles.historyRow, { borderBottomColor: c.ln }]}
     >
-      <View style={[styles.historyThumb, { backgroundColor: c.sf, opacity: failed ? 0.5 : 1 }]}>
+      <View
+        style={[styles.historyThumb, { backgroundColor: c.sf, opacity: failed || stopped ? 0.5 : 1 }]}
+      >
         {failed ? (
           <Icon name="alert" size={16} color={c.error} />
+        ) : stopped ? (
+          <Icon name="clock" size={16} color={c.t3} />
         ) : cover ? (
           <Image source={{ uri: cover }} resizeMode="cover" style={styles.fill} />
         ) : null}
@@ -204,9 +219,14 @@ function HistoryRow({ job }: { job: JobSummary }) {
           {job.prompt}
         </Body>
         <View style={styles.statusLine}>
-          <View style={[styles.statusDot, { backgroundColor: failed ? c.error : c.success }]} />
+          <View
+            style={[
+              styles.statusDot,
+              { backgroundColor: failed ? c.error : stopped ? c.t3 : c.success },
+            ]}
+          />
           <Body size={11} color={c.t3} numberOfLines={1}>
-            {failed ? "failed" : "done"}
+            {failed ? "failed" : stopped ? "stopped" : "done"}
           </Body>
         </View>
       </View>
@@ -240,6 +260,7 @@ const styles = StyleSheet.create({
   thumb: { width: 86, height: 86, flexShrink: 0 },
   cardBody: { flex: 1, minWidth: 0, gap: 7, justifyContent: "center" },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  cardTopRight: { flexDirection: "row", alignItems: "center", gap: 10 },
   stages: { flexDirection: "row", alignItems: "center", gap: 16 },
   stage: { flexDirection: "row", alignItems: "center", gap: 6 },
   stageDot: { width: 6, height: 6, borderRadius: 3 },

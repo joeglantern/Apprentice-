@@ -10,6 +10,7 @@ const LABELS: Record<JobStatus, string> = {
   render: "Rendering",
   done: "Done",
   error: "Something went wrong",
+  cancelled: "Stopped",
 };
 
 interface Props {

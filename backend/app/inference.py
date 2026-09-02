@@ -19,10 +19,12 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any, Protocol
 
 import httpx
 
+from app.cancel import Cancelled
 from app.config import Settings
 
 log = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ class Renderer(Protocol):
         height: int,
         lora: str | None,
         scene_text: str | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> bytes | None: ...
 
 
@@ -61,6 +64,7 @@ class NullRenderer:
         height: int,
         lora: str | None,
         scene_text: str | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> bytes | None:
         return None
 
@@ -467,8 +471,10 @@ class ComfyRenderer:
         height: int,
         lora: str | None,
         scene_text: str | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> bytes | None:
-        """Never raises: any failure (unreachable, bad graph, timeout) degrades to None so
+        """Never raises, except Cancelled: any failure (unreachable, bad graph, timeout)
+        degrades to None so
         the caller falls back to a flat colour block instead of failing the whole job.
         scene_text switches the one layer that needs legible in-photo words to Flux;
         without Flux installed it renders with SDXL and the words are simply absent."""
@@ -519,6 +525,14 @@ class ComfyRenderer:
             prompt_id = r.json()["prompt_id"]
             deadline = time.time() + self.timeout
             while time.time() < deadline:
+                if should_cancel is not None and should_cancel():
+                    # Tell the GPU to stop too, or it keeps painting a picture that
+                    # nobody is going to collect and holds the queue behind it.
+                    try:
+                        client.post("/interrupt", timeout=5.0)
+                    except httpx.HTTPError:
+                        log.warning("could not interrupt comfy job %s", prompt_id)
+                    raise Cancelled
                 h = client.get(f"/history/{prompt_id}")
                 h.raise_for_status()
                 entry = h.json().get(prompt_id)

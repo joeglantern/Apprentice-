@@ -15,7 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth import verify_agent_token, verify_agent_token_or_query
 from app.db import get_session
 from app.director import BrandKit
-from app.models import Checkpoint, Job
+from app.models import JOB_TERMINAL, Checkpoint, Job, utcnow
 from app.queue import enqueue_generation
 from app.schemas import UUID_PATTERN
 from app.storage import Storage, get_storage
@@ -47,7 +47,7 @@ class GenerateAccepted(BaseModel):
 
 class JobRead(BaseModel):
     job_id: str
-    status: Literal["queued", "planning", "layout", "render", "done", "error"]
+    status: Literal["queued", "planning", "layout", "render", "done", "error", "cancelled"]
     prompt: str
     aesthetic_version: str
     kind: str = "poster"
@@ -64,7 +64,7 @@ class JobSummary(BaseModel):
     read by the history list (only GET /generate/{id} on the one job someone opens)."""
 
     job_id: str
-    status: Literal["queued", "planning", "layout", "render", "done", "error"]
+    status: Literal["queued", "planning", "layout", "render", "done", "error", "cancelled"]
     prompt: str
     aesthetic_version: str
     kind: str = "poster"
@@ -241,6 +241,40 @@ async def read_raster(
     return Response(content=data, media_type="image/png")
 
 
+@router.post("/generate/{job_id}/cancel", response_model=JobRead)
+async def cancel_generation(
+    job_id: JobId,
+    session: AsyncSession = Depends(get_session),
+    agent_id: str = Depends(verify_agent_token),
+) -> Job:
+    """Stop a generation that is queued or running.
+
+    Setting the status is the whole mechanism. The pipeline is spread across a Celery
+    worker and a GPU on another machine, and killing either mid-write is how a job row
+    ends up disagreeing with storage, so nothing is torn down here. The worker reads
+    the row at every stage boundary and on every poll of the renderer, sees this, tells
+    the GPU to stop, and unwinds. A job still waiting in the queue is never picked up
+    at all.
+
+    So a cancel is not instant: expect up to a couple of seconds while a render notices.
+    The job is terminal from this moment either way, which is what the app needs to
+    stop waiting on it, and which makes it deletable.
+    """
+    job = await session.get(Job, job_id.lower())
+    if job is None or job.requested_by != agent_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if job.status in JOB_TERMINAL:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Already {job.status}")
+
+    job.status = "cancelled"
+    job.error = None
+    job.updated_at = utcnow()
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    return job
+
+
 @router.delete("/generate/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_job(
     job_id: JobId,
@@ -261,11 +295,12 @@ async def delete_job(
     job = await session.get(Job, job_id.lower())
     if job is None or job.requested_by != agent_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    if job.status not in ("done", "error"):
+    if job.status not in JOB_TERMINAL:
         # Deleting the row underneath a running task leaves the worker writing results
-        # for a job nobody can read, and the app polling something that is gone.
+        # for a job nobody can read, and the app polling something that is gone. Cancel
+        # it first; a cancelled job is terminal and deletes like any other.
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "Still running; wait for it to finish"
+            status.HTTP_409_CONFLICT, "Still running; cancel it first"
         )
 
     mine = {

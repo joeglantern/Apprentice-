@@ -50,6 +50,7 @@ def run_generation(
     brand: dict[str, Any] | None = None,
     seeded_plan: dict[str, Any] | None = None,
     reuse_rasters: dict[str, str] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[DesignPlan, dict[str, Any]]:
     if kind in ("image", "logo"):
         # No director, no layout: one full-canvas render. A logo names its brand in
@@ -92,7 +93,10 @@ def run_generation(
         n = max(1, int(settings.render_candidates)) if not scene_text else 1
         candidates = [
             c
-            for c in (renderer.render(image_prompt, w, h, lora_file, scene_text) for _ in range(n))
+            for c in (
+                renderer.render(image_prompt, w, h, lora_file, scene_text, should_cancel=should_cancel)
+                for _ in range(n)
+            )
             if c
         ]
         data = None
