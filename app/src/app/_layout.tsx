@@ -11,6 +11,9 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { SessionProvider, useSession } from "@/state/session";
 import { ThemeProvider, useTheme } from "@/theme/theme";
 
+/** Back from any destination lands on explore rather than exiting the app. */
+export const unstable_settings = { initialRouteName: "index" };
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

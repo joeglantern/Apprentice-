@@ -21,7 +21,7 @@ import logging
 import uuid
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlmodel import select
@@ -31,8 +31,9 @@ from app.auth import verify_agent_token
 from app.chat import ChatTurn, apply_copy_edits, interpret, landed_line
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import ChatMessage, ChatThread, Job
+from app.models import ChatMessage, ChatThread, Checkpoint, Job
 from app.queue import enqueue_generation
+from app.routes.generate import BASELINE, GenerateRequest
 from app.schemas import UUID_PATTERN
 
 log = logging.getLogger(__name__)
@@ -199,6 +200,17 @@ async def list_threads(
     session: AsyncSession = Depends(get_session),
     agent_id: str = Depends(verify_agent_token),
 ) -> list[ThreadSummary]:
+    """Sessions, newest first.
+
+    A session is named after the piece it is about, not after the sentence that
+    started it: `app/titles.py` already writes a real name on every landed job, and a
+    sidebar of raw prompts reads as a list of instructions rather than a body of work.
+    Falls back to the opening message, then to a placeholder, so a session that has
+    not produced anything yet still has something to show.
+
+    The name is derived rather than stored. A thread's piece keeps changing as
+    revisions land, and a column would go stale the first time one did.
+    """
     stmt = (
         select(ChatThread)
         .where(ChatThread.owner == agent_id)
@@ -206,26 +218,163 @@ async def list_threads(
         .limit(min(max(limit, 1), 100))
     )
     threads = list((await session.exec(stmt)).all())
-    out: list[ThreadSummary] = []
-    for thread in threads:
-        first = (
-            await session.exec(
-                select(ChatMessage.text)
-                .where(ChatMessage.thread_id == thread.thread_id, ChatMessage.role == "user")
-                .order_by(ChatMessage.created_at)  # type: ignore[arg-type]
-                .limit(1)
-            )
-        ).first()
-        out.append(
-            ThreadSummary(
-                thread_id=thread.thread_id,
-                active_job_id=thread.active_job_id,
-                title=(first or "new thread")[:80],
-                created_at=thread.created_at,
-                updated_at=thread.updated_at,
+    if not threads:
+        return []
+
+    # Two queries for the whole page, rather than two per thread.
+    job_ids = [t.active_job_id for t in threads if t.active_job_id]
+    titles: dict[str, str] = {}
+    if job_ids:
+        rows = await session.exec(
+            select(Job.job_id, Job.title).where(Job.job_id.in_(job_ids))  # type: ignore[attr-defined]
+        )
+        titles = {jid: title for jid, title in rows if title}
+
+    openers: dict[str, str] = {}
+    messages = await session.exec(
+        select(ChatMessage.thread_id, ChatMessage.text)
+        .where(
+            ChatMessage.thread_id.in_([t.thread_id for t in threads]),  # type: ignore[attr-defined]
+            ChatMessage.role == "user",
+        )
+        .order_by(ChatMessage.created_at)  # type: ignore[arg-type]
+    )
+    for thread_id, text in messages:
+        openers.setdefault(thread_id, text)
+
+    return [
+        ThreadSummary(
+            thread_id=t.thread_id,
+            active_job_id=t.active_job_id,
+            title=(
+                titles.get(t.active_job_id or "")
+                or openers.get(t.thread_id)
+                or "new session"
+            )[:80],
+            created_at=t.created_at,
+            updated_at=t.updated_at,
+        )
+        for t in threads
+    ]
+
+
+@router.delete("/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_thread(
+    thread_id: ThreadId,
+    session: AsyncSession = Depends(get_session),
+    agent_id: str = Depends(verify_agent_token),
+) -> Response:
+    """Remove a session and its messages. The pieces it made are left alone.
+
+    A generation outlives the conversation that produced it: it is in explore, it may
+    be exported, and it has its own delete that reference-counts the rasters shared
+    with revisions. Removing a session is forgetting the discussion, not the work.
+
+    The messages go explicitly rather than by cascade. 0007 declares ON DELETE CASCADE
+    and Postgres honours it, but the test suite runs SQLite, where foreign keys are
+    off unless a pragma turns them on; deleting here behaves the same on both.
+    """
+    thread = await _owned_thread(thread_id, agent_id, session)
+    for message in await _messages(thread.thread_id, session):
+        await session.delete(message)
+    await session.delete(thread)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{thread_id}/generate", response_model=ThreadRead)
+async def generate_in_thread(
+    thread_id: ThreadId,
+    body: GenerateRequest,
+    session: AsyncSession = Depends(get_session),
+    agent_id: str = Depends(verify_agent_token),
+    settings: Settings = Depends(get_settings),
+) -> ThreadRead:
+    """Start a piece from the create deck, recorded as a turn in this session.
+
+    Deliberately not routed through /turn, even though a turn can already start a
+    new piece. Four reasons, each of which would be a bug:
+
+    - /turn asks the model what the message means and fails closed to `answer`.
+      Pressing generate would sometimes return a sentence and no render. Generate
+      must always generate.
+    - TurnRequest carries no brand, so the deck's kit would be silently dropped.
+    - _act inherits kind, width and height from the open job, so changing size or
+      kind in the deck mid-session would be ignored.
+    - It would put a model call, up to chat_timeout_s of it, on the app's fastest path.
+
+    So this is deterministic: the same two rows a turn writes, no interpretation. The
+    reply states intent only, like every other reply here; the landed line added when
+    the job finishes is the one that describes what happened.
+    """
+    thread = await _owned_thread(thread_id, agent_id, session)
+
+    if body.aesthetic_version != BASELINE:
+        ckpt = await session.get(Checkpoint, body.aesthetic_version)
+        if ckpt is None or ckpt.kind != "style-lora":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown aesthetic version")
+
+    started = (
+        await session.exec(
+            select(ChatMessage.message_id).where(
+                ChatMessage.thread_id == thread.thread_id, ChatMessage.job_id.is_not(None)  # type: ignore[union-attr]
             )
         )
-    return out
+    ).all()
+    if len(started) >= settings.chat_max_jobs_per_thread:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This session has hit its render limit; start a new one",
+        )
+
+    user_message = ChatMessage(
+        message_id=str(uuid.uuid4()),
+        thread_id=thread.thread_id,
+        role="user",
+        text=body.prompt.strip(),
+    )
+    session.add(user_message)
+
+    job = Job(
+        job_id=str(uuid.uuid4()),
+        prompt=body.prompt.strip(),
+        aesthetic_version=body.aesthetic_version,
+        kind=body.kind,
+        brand=body.brand.model_dump() if body.brand else None,
+        width=body.width,
+        height=body.height,
+        requested_by=agent_id,
+    )
+    turn, job_id = await _enqueue(
+        ChatTurn(reply="making that now.", action="new_direction", brief=body.prompt.strip()),
+        job,
+        session,
+    )
+
+    session.add(
+        ChatMessage(
+            message_id=str(uuid.uuid4()),
+            thread_id=thread.thread_id,
+            role="assistant",
+            text=turn.reply,
+            action=turn.action if turn.is_action() else None,
+            job_id=job_id,
+        )
+    )
+    if job_id:
+        thread.active_job_id = job_id
+    thread.updated_at = user_message.created_at
+    session.add(thread)
+    await session.commit()
+
+    messages = await _messages(thread.thread_id, session)
+    return ThreadRead(
+        thread_id=thread.thread_id,
+        active_job_id=thread.active_job_id,
+        messages=[MessageRead(**m.model_dump()) for m in messages],
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+    )
 
 
 @router.get("/{thread_id}", response_model=ThreadRead)

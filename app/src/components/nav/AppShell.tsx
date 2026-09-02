@@ -68,6 +68,22 @@ function isActive(pathname: string, href: string) {
   return here === href;
 }
 
+/** Move between destinations without stacking them up.
+ *
+ * `navigate` returns to a route already in the navigation state instead of pushing a
+ * duplicate, so the stack stays bounded by the number of destinations and the web
+ * back button walks them rather than replaying a hall of mirrors. Pushing also
+ * remounted the screen every time, which is why chat used to start a new thread on
+ * every visit. Detail routes like /canvas still push, because back should return to
+ * the list you opened them from. */
+function useGoTo(pathname: string) {
+  const router = useRouter();
+  return (href: string) => {
+    if (isActive(pathname, href)) return;
+    router.navigate(href as never);
+  };
+}
+
 function useAnythingRunning() {
   const { data } = useJobHistory();
   return !!data?.some((j) => j.status !== "done" && j.status !== "error");
@@ -75,7 +91,7 @@ function useAnythingRunning() {
 
 function Rail({ pathname }: { pathname: string }) {
   const { c } = useTheme();
-  const router = useRouter();
+  const goTo = useGoTo(pathname);
   const insets = useSafeAreaInsets();
   const running = useAnythingRunning();
 
@@ -96,7 +112,7 @@ function Rail({ pathname }: { pathname: string }) {
           dest={d}
           active={isActive(pathname, d.href)}
           badge={d.href === "/jobs" && running}
-          onPress={() => router.push(d.href as never)}
+          onPress={() => goTo(d.href)}
         />
       ))}
 
@@ -104,7 +120,7 @@ function Rail({ pathname }: { pathname: string }) {
         <RailItem
           dest={SETTINGS}
           active={isActive(pathname, SETTINGS.href)}
-          onPress={() => router.push(SETTINGS.href as never)}
+          onPress={() => goTo(SETTINGS.href)}
         />
         <View style={[styles.avatar, { backgroundColor: c.raise }]}>
           <Mono size={9} color={c.t2}>
@@ -148,7 +164,7 @@ function RailItem({
 
 function TabBar({ pathname }: { pathname: string }) {
   const { c } = useTheme();
-  const router = useRouter();
+  const goTo = useGoTo(pathname);
   const insets = useSafeAreaInsets();
 
   return (
@@ -164,7 +180,7 @@ function TabBar({ pathname }: { pathname: string }) {
           <PressScale
             key={d.href}
             scale={0.94}
-            onPress={() => router.push(d.href as never)}
+            onPress={() => goTo(d.href)}
             accessibilityRole="link"
             accessibilityLabel={d.label}
             accessibilityState={{ selected: active }}

@@ -450,3 +450,166 @@ async def test_recompose_cycles_through_the_three_compositions(
         from app.models import Job
 
         assert (await session.get(Job, assistant["job_id"])).plan["composition"] == "split"
+
+
+# --- sessions: naming, listing, removing ------------------------------------------
+
+
+async def test_a_session_is_named_after_its_piece(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession], no_queue: None
+) -> None:
+    """A sidebar of raw prompts reads as instructions; titles.py already wrote a name."""
+    job_id = await _finished_job(client, session_maker)
+    async with session_maker() as session:
+        from app.models import Job
+
+        job = await session.get(Job, job_id)
+        job.title = "Rooftop Vibes"
+        session.add(job)
+        await session.commit()
+
+    # Adopt the titled piece and leave it as the open one; generating here would
+    # replace active_job_id with a fresh, still untitled job.
+    thread_id = await _thread(client, job_id)
+
+    rows = (await client.get("/chat", headers=AUTH_A)).json()
+    mine = next(r for r in rows if r["thread_id"] == thread_id)
+    assert mine["title"] == "Rooftop Vibes"
+
+
+async def test_a_session_with_no_title_falls_back_to_its_opening_message(
+    client: AsyncClient, no_queue: None
+) -> None:
+    thread_id = await _thread(client)
+    await client.post(
+        f"/chat/{thread_id}/generate", json={"prompt": "poster for a gym opening"}, headers=AUTH_A
+    )
+    rows = (await client.get("/chat", headers=AUTH_A)).json()
+    assert next(r for r in rows if r["thread_id"] == thread_id)["title"] == "poster for a gym opening"
+
+
+async def test_a_session_that_has_said_nothing_still_has_a_name(client: AsyncClient) -> None:
+    thread_id = await _thread(client)
+    rows = (await client.get("/chat", headers=AUTH_A)).json()
+    assert next(r for r in rows if r["thread_id"] == thread_id)["title"] == "new session"
+
+
+async def test_sessions_are_listed_newest_first(client: AsyncClient, no_queue: None) -> None:
+    first = await _thread(client)
+    second = await _thread(client)
+    await client.post(f"/chat/{first}/generate", json={"prompt": "the older one"}, headers=AUTH_A)
+    await client.post(f"/chat/{second}/generate", json={"prompt": "the newer one"}, headers=AUTH_A)
+    ids = [r["thread_id"] for r in (await client.get("/chat", headers=AUTH_A)).json()]
+    assert ids.index(second) < ids.index(first)
+
+
+async def test_sessions_are_scoped_to_their_owner(client: AsyncClient) -> None:
+    thread_id = await _thread(client)
+    assert all(r["thread_id"] != thread_id for r in (await client.get("/chat", headers=AUTH_B)).json())
+
+
+async def test_deleting_a_session_keeps_the_work_it_made(
+    client: AsyncClient, no_queue: None
+) -> None:
+    """Forgetting the conversation is not forgetting the piece: a generation lives in
+    explore, may already be exported, and has its own delete."""
+    thread_id = await _thread(client)
+    r = await client.post(
+        f"/chat/{thread_id}/generate", json={"prompt": "a poster"}, headers=AUTH_A
+    )
+    job_id = r.json()["active_job_id"]
+
+    assert (await client.delete(f"/chat/{thread_id}", headers=AUTH_A)).status_code == 204
+    assert (await client.get(f"/chat/{thread_id}", headers=AUTH_A)).status_code == 404
+    assert (await client.get(f"/generate/{job_id}", headers=AUTH_A)).status_code == 200
+
+
+async def test_deleting_someone_elses_session_is_a_404(client: AsyncClient) -> None:
+    thread_id = await _thread(client)
+    assert (await client.delete(f"/chat/{thread_id}", headers=AUTH_B)).status_code == 404
+    assert (await client.get(f"/chat/{thread_id}", headers=AUTH_A)).status_code == 200
+
+
+# --- generating inside a session --------------------------------------------------
+
+
+async def test_generate_in_thread_never_asks_the_model(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, no_queue: None
+) -> None:
+    """The whole point of the endpoint. Pressing generate must always generate, never
+    come back with a sentence because a router decided the message was a question."""
+
+    async def explode(**kwargs: object) -> ChatTurn:
+        raise AssertionError("generate must not call interpret")
+
+    monkeypatch.setattr("app.routes.chat.interpret", explode)
+
+    thread_id = await _thread(client)
+    r = await client.post(
+        f"/chat/{thread_id}/generate", json={"prompt": "poster for a jazz night"}, headers=AUTH_A
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["active_job_id"]
+    assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
+    assert body["messages"][0]["text"] == "poster for a jazz night"
+    assert body["messages"][1]["action"] == "new_direction"
+    assert body["messages"][1]["job_id"] == body["active_job_id"]
+
+
+async def test_generate_in_thread_keeps_the_decks_own_choices(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession], no_queue: None
+) -> None:
+    """A turn inherits kind and size from the open piece, which is right for a
+    revision and wrong for the deck: the deck is explicit, and it also carries a brand
+    kit that TurnRequest has nowhere to put."""
+    poster = await _finished_job(client, session_maker)
+    thread_id = await _thread(client, poster)
+
+    r = await client.post(
+        f"/chat/{thread_id}/generate",
+        json={
+            "prompt": "a square mark",
+            "kind": "logo",
+            "width": 1024,
+            "height": 1024,
+            "brand": {"name": "tide & salt", "palette": ["#0E3A3A"], "typeface": "grotesk"},
+        },
+        headers=AUTH_A,
+    )
+    assert r.status_code == 200
+
+    async with session_maker() as session:
+        from app.models import Job
+
+        job = await session.get(Job, r.json()["active_job_id"])
+        assert job.kind == "logo"
+        assert (job.width, job.height) == (1024, 1024)
+        assert job.brand["name"] == "tide & salt"
+
+
+async def test_generate_in_thread_respects_the_render_cap(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, no_queue: None
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setenv("CHAT_MAX_JOBS_PER_THREAD", "1")
+    get_settings.cache_clear()
+    thread_id = await _thread(client)
+    first = await client.post(f"/chat/{thread_id}/generate", json={"prompt": "one"}, headers=AUTH_A)
+    assert first.status_code == 200
+    second = await client.post(f"/chat/{thread_id}/generate", json={"prompt": "two"}, headers=AUTH_A)
+    assert second.status_code == 409
+    get_settings.cache_clear()
+
+
+async def test_generate_in_thread_rejects_an_unknown_aesthetic(
+    client: AsyncClient, no_queue: None
+) -> None:
+    thread_id = await _thread(client)
+    r = await client.post(
+        f"/chat/{thread_id}/generate",
+        json={"prompt": "a poster", "aesthetic_version": "eidolon-nope-1"},
+        headers=AUTH_A,
+    )
+    assert r.status_code == 404
