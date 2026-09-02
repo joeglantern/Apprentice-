@@ -1,152 +1,236 @@
+/** Explore - the home screen and the app's shop window.
+ *
+ * Borderless artwork in a masonry with the prompt sitting on the image itself
+ * rather than in a caption strip: the work is the interface. */
+
 import { useRouter } from "expo-router";
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useMemo, useState } from "react";
+import { Image, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
-import { AestheticSelector } from "@/components/AestheticSelector";
-import { PromptInput } from "@/components/PromptInput";
-import { useAesthetics } from "@/hooks/useAesthetics";
-import { useGenerate } from "@/hooks/useGenerate";
-import type { BrandKit, JobKind } from "@/lib/types";
+import { Icon } from "@/components/ui/Icon";
+import { JobArtwork } from "@/components/ui/JobArtwork";
+import { PressScale } from "@/components/ui/press";
+import { Body, Display, Mono } from "@/components/ui/type";
+import { coverAspect } from "@/hooks/useJobCover";
+import { useJobHistory } from "@/hooks/useJobHistory";
+import { radii, type } from "@/lib/tokens";
+import type { JobKind, JobSummary } from "@/lib/types";
+import { useSession } from "@/state/session";
+import { useTheme } from "@/theme/theme";
 
-const BASELINE = "baseline";
-const KINDS: { value: JobKind; label: string }[] = [
-  { value: "poster", label: "Poster" },
-  { value: "image", label: "Photo" },
-  { value: "logo", label: "Logo" },
-];
+const EMPTY = require("../../assets/brand/empty-frame.png");
 
-export default function PromptScreen() {
-  const router = useRouter();
-  const aesthetics = useAesthetics();
-  const generate = useGenerate();
-  const [aestheticVersion, setAestheticVersion] = useState(BASELINE);
-  const [kind, setKind] = useState<JobKind>("poster");
-  const [brandOpen, setBrandOpen] = useState(false);
-  const [brandName, setBrandName] = useState("");
-  const [brandPalette, setBrandPalette] = useState("");
+type Filter = "all" | JobKind;
+const FILTERS: Filter[] = ["all", "poster", "image", "logo"];
 
-  // "#1A2B3C, #F2A623" -> ["#1A2B3C", "#F2A623"]; junk entries are just dropped.
-  const brand = (): BrandKit | undefined => {
-    if (!brandName.trim()) return undefined;
-    const palette = brandPalette
-      .split(/[,\s]+/)
-      .map((c) => c.trim().toUpperCase())
-      .filter((c) => /^#[0-9A-F]{6}$/.test(c));
-    return { name: brandName.trim(), palette };
-  };
+export default function ExploreScreen() {
+  const { c, exploreColumns, isDesktop } = useTheme();
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
 
-  const onSubmit = (prompt: string) => {
-    generate.mutate(
-      { prompt, aestheticVersion, kind, brand: brand() },
-      {
-        onSuccess: (accepted) => {
-          router.push({ pathname: "/canvas", params: { jobId: accepted.job_id, prompt } });
-        },
-      },
-    );
-  };
+  const { data, isLoading, isError, error } = useJobHistory();
+  const done = useMemo(() => (data ?? []).filter((j) => j.status === "done"), [data]);
+
+  const counts = useMemo(() => {
+    const out = { all: done.length, poster: 0, image: 0, logo: 0 } as Record<Filter, number>;
+    for (const j of done) out[j.kind] += 1;
+    return out;
+  }, [done]);
+
+  const visible = useMemo(() => {
+    const byKind = filter === "all" ? done : done.filter((j) => j.kind === filter);
+    const q = query.trim().toLowerCase();
+    return q ? byKind.filter((j) => j.prompt.toLowerCase().includes(q)) : byKind;
+  }, [done, filter, query]);
+
+  // Greedy shortest-column packing. React Native has no CSS columns, and a plain
+  // even grid would leave a ragged gap under every card that is shorter than its row.
+  const columns = useMemo(() => {
+    const cols: JobSummary[][] = Array.from({ length: exploreColumns }, () => []);
+    const heights = new Array<number>(exploreColumns).fill(0);
+    for (const job of visible) {
+      const shortest = heights.indexOf(Math.min(...heights));
+      cols[shortest].push(job);
+      heights[shortest] += 1 / coverAspect(job.kind);
+    }
+    return cols;
+  }, [visible, exploreColumns]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <Text style={styles.title}>Ghost Agent</Text>
-            <Pressable onPress={() => router.push("/history")}>
-              <Text style={styles.historyLink}>History</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.subtitle}>
-            Describe the piece. The director plans it, the renderer paints it, in the
-            designer&apos;s signature style once one exists.
-          </Text>
+    <ScrollView style={styles.fill} contentContainerStyle={[styles.page, { paddingHorizontal: isDesktop ? 32 : 20 }]}>
+      {/* Stacked on phone: a 250px search pill beside a 40px title does not fit in
+          390, and a flex row that cannot wrap widens the whole document. */}
+      <View style={[styles.header, !isDesktop && styles.headerStacked]}>
+        <Display size={isDesktop ? type.displayXL : 40}>explore</Display>
+        <View style={[styles.search, { backgroundColor: c.sf }, !isDesktop && styles.searchWide]}>
+          <Icon name="search" size={14} color={c.t1} opacity={0.5} />
+          <TextInput
+            style={[styles.searchInput, { color: c.t1 }]}
+            placeholder="search generations"
+            placeholderTextColor={c.t3}
+            value={query}
+            onChangeText={setQuery}
+          />
         </View>
+      </View>
 
-        <View style={styles.kinds}>
-          {KINDS.map((k) => (
-            <Pressable
-              key={k.value}
-              onPress={() => setKind(k.value)}
-              style={[styles.kind, kind === k.value && styles.kindOn]}
-            >
-              <Text style={[styles.kindText, kind === k.value && styles.kindTextOn]}>{k.label}</Text>
-            </Pressable>
+      <View style={[styles.filters, { borderBottomColor: c.ln }]}>
+        {FILTERS.map((f) => {
+          const on = filter === f;
+          return (
+            <PressScale key={f} scale={0.97} onPress={() => setFilter(f)}>
+              <View style={[styles.filterInner, on && { borderBottomColor: c.t1 }]}>
+                <Body size={type.bodySM} weight={on ? "600" : "400"} color={on ? c.t1 : c.t3}>
+                  {f}
+                </Body>
+                <Mono size={type.monoXS} color={c.t3}>
+                  {String(counts[f])}
+                </Mono>
+              </View>
+            </PressScale>
+          );
+        })}
+      </View>
+
+      {visible.length === 0 ? (
+        <Empty loading={isLoading} failed={isError} reason={(error as Error | null)?.message} narrowed={done.length > 0} />
+      ) : (
+        <View style={styles.masonry}>
+          {columns.map((col, i) => (
+            <View key={i} style={styles.column}>
+              {col.map((job) => (
+                <Card key={job.job_id} job={job} />
+              ))}
+            </View>
           ))}
         </View>
+      )}
+    </ScrollView>
+  );
+}
 
-        <AestheticSelector
-          aesthetics={aesthetics.data ?? []}
-          selected={aestheticVersion}
-          onSelect={setAestheticVersion}
-        />
+function Card({ job }: { job: JobSummary }) {
+  const { c } = useTheme();
+  const router = useRouter();
+  const { setActiveJobId } = useSession();
 
-        <Pressable onPress={() => setBrandOpen(!brandOpen)}>
-          <Text style={styles.brandToggle}>
-            {brandOpen ? "Hide brand kit" : "Brand kit (optional)"}
-          </Text>
-        </Pressable>
-        {brandOpen && (
-          <View style={styles.brandBox}>
-            <TextInput
-              style={styles.brandInput}
-              placeholder="Brand name"
-              placeholderTextColor="#6B707A"
-              value={brandName}
-              onChangeText={setBrandName}
-            />
-            <TextInput
-              style={styles.brandInput}
-              placeholder="Palette, e.g. #1A2B3C #F2A623"
-              placeholderTextColor="#6B707A"
-              autoCapitalize="characters"
-              value={brandPalette}
-              onChangeText={setBrandPalette}
-            />
-          </View>
-        )}
+  return (
+    <PressScale
+      scale={0.985}
+      onPress={() => {
+        setActiveJobId(job.job_id);
+        router.push("/canvas");
+      }}
+      accessibilityRole="link"
+      accessibilityLabel={job.prompt}
+      style={[styles.card, { backgroundColor: c.sf0, aspectRatio: coverAspect(job.kind) }]}
+    >
+      <JobArtwork jobId={job.job_id} kind={job.kind} fill style={StyleSheet.absoluteFill} />
+      <Body size={12.5} weight="500" color="#FFFFFF" numberOfLines={1} style={styles.caption}>
+        {job.prompt}
+      </Body>
+    </PressScale>
+  );
+}
 
-        <PromptInput onSubmit={onSubmit} busy={generate.isPending} />
+/** "Nothing here" and "could not ask" look identical unless the screen says which.
+ * A silent fetch failure reading as an empty studio is how you end up staring at a
+ * working app wondering why nothing happens. */
+function Empty({
+  loading,
+  failed,
+  reason,
+  narrowed,
+}: {
+  loading: boolean;
+  failed: boolean;
+  reason?: string;
+  narrowed: boolean;
+}) {
+  const { c } = useTheme();
 
-        {generate.isError && (
-          <Text style={styles.error}>{(generate.error as Error).message}</Text>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+  if (failed) {
+    return (
+      <View style={styles.empty}>
+        <Body size={type.bodyMD} color={c.error}>
+          cannot reach the server
+        </Body>
+        <Mono size={11} color={c.t3} style={styles.emptyReason}>
+          {reason ?? "no response"}
+        </Mono>
+        <Mono size={11} color={c.t3}>
+          check the address under settings
+        </Mono>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.empty}>
+      {loading ? null : <Image source={EMPTY} style={styles.emptyGlyph} />}
+      <Body size={type.bodyMD} color={c.t2}>
+        {loading ? "loading" : narrowed ? "nothing matches that" : "nothing generated yet"}
+      </Body>
+      {!loading && !narrowed ? (
+        <Mono size={11} color={c.t3}>
+          start on create
+        </Mono>
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0B0B0F" },
-  container: { padding: 20, gap: 20 },
-  header: { gap: 8 },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  title: { color: "#F4F5F7", fontSize: 28, fontWeight: "700" },
-  historyLink: { color: "#8A8F98", fontSize: 14 },
-  subtitle: { color: "#8A8F98", fontSize: 14, lineHeight: 20 },
-  error: { color: "#E5484D", fontSize: 13 },
-  kinds: { flexDirection: "row", gap: 8 },
-  kind: {
-    paddingVertical: 8,
+  fill: { flex: 1 },
+  page: { paddingTop: 44, paddingBottom: 96, maxWidth: 1440, width: "100%", alignSelf: "center" },
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 24,
+    marginBottom: 14,
+  },
+  headerStacked: { flexDirection: "column", alignItems: "stretch", gap: 16 },
+  search: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: radii.chip,
+    paddingHorizontal: 16,
+    height: 40,
+    minWidth: 250,
+  },
+  searchWide: { minWidth: 0, width: "100%" },
+  searchInput: { flex: 1, fontSize: type.bodySM, fontFamily: type.body.family, minWidth: 0 },
+  filters: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+    flexWrap: "wrap",
+    marginBottom: 26,
+    borderBottomWidth: 1,
+  },
+  filterInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 44,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    marginBottom: -1,
+  },
+  masonry: { flexDirection: "row", gap: 14 },
+  column: { flex: 1, gap: 16 },
+  card: { borderRadius: radii.mediaLg, overflow: "hidden", justifyContent: "flex-end" },
+  caption: {
     paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#2A2D34",
-    backgroundColor: "#15161B",
+    paddingBottom: 11,
+    textShadowColor: "rgba(0,0,0,0.85)",
+    textShadowRadius: 10,
+    textShadowOffset: { width: 0, height: 1 },
   },
-  kindOn: { backgroundColor: "#F4F5F7", borderColor: "#F4F5F7" },
-  kindText: { color: "#C7CAD1", fontSize: 13 },
-  kindTextOn: { color: "#0B0B0F", fontWeight: "600" },
-  brandToggle: { color: "#8A8F98", fontSize: 13 },
-  brandBox: { gap: 8 },
-  brandInput: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#2A2D34",
-    backgroundColor: "#15161B",
-    color: "#F4F5F7",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
+  empty: { paddingVertical: 80, alignItems: "center", gap: 8 },
+  emptyReason: { textAlign: "center", paddingHorizontal: 24 },
+  emptyGlyph: { width: 56, height: 56, opacity: 0.8, marginBottom: 4 },
 });

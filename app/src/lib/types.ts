@@ -125,3 +125,29 @@ export interface ProgressEvent {
   step?: number;
   total?: number;
 }
+
+/** One turn in a chat thread. `action` and `job_id` are set on assistant turns that
+ * did work; `landed` is filled in by the server once that job reaches a terminal
+ * state - the reply itself is written before the render runs and only ever states an
+ * intent, so it is the one field that describes a result. */
+export interface ChatMessage {
+  message_id: string;
+  role: "user" | "assistant";
+  text: string;
+  action: "revise" | "edit_copy" | "new_direction" | null;
+  job_id: string | null;
+  landed: string | null;
+  created_at: string;
+}
+
+export interface ChatThread {
+  thread_id: string;
+  active_job_id: string | null;
+  messages: ChatMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** A quick-action chip. Its intent is known from the button, so the server carries it
+ * out without a model call - the chips stay instant and cannot be misrouted. */
+export type QuickAction = "swap_photo" | "recompose";

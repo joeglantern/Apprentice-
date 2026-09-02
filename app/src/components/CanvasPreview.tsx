@@ -38,7 +38,9 @@ export function CanvasPreview({ jobId, layers, canvasWidth, canvasHeight }: Prop
     .sort((a, b) => a.z_index - b.z_index);
 
   return (
-    <Svg width="100%" viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}>
+    // height is explicit: an Svg with only a width falls back to the SVG intrinsic
+    // height of 150 instead of taking its aspect from the viewBox.
+    <Svg width="100%" height="100%" viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}>
       {ordered.map((layer) => {
         const { x, y, width, height } = layer.bbox;
         if (layer.type === "icon" && layer.icon && ICON_PATHS[layer.icon]) {

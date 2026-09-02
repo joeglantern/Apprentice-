@@ -1,137 +1,290 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+/** Canvas detail - one piece, taken apart.
+ *
+ * The artwork sits on pure black (the only place in the app that is not the near-
+ * black background: media gets the OLED treatment), and the panel beside it is the
+ * only surface that explains the model's reasoning. Selecting a layer draws its box
+ * on the artwork, so "headline" means a place on the page, not a row in a list. */
 
-import { CanvasPreview } from "@/components/CanvasPreview";
-import { ProgressBar } from "@/components/ProgressBar";
-import { useGenerationProgress } from "@/hooks/useGenerationProgress";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMemo, useState } from "react";
+import { ScrollView, StyleSheet, View } from "react-native";
+
+import { Icon } from "@/components/ui/Icon";
+import { JobArtwork } from "@/components/ui/JobArtwork";
+import { Pill } from "@/components/ui/controls";
+import { PressScale } from "@/components/ui/press";
+import { useToast } from "@/components/ui/Toast";
+import { Body, Mono, MonoLabel } from "@/components/ui/type";
 import { useJob } from "@/hooks/useJob";
-import { reviseJob } from "@/lib/api";
-import { useState } from "react";
+import { useRevise } from "@/hooks/useRevise";
+import { radii, type } from "@/lib/tokens";
+import type { Layer, LayerType } from "@/lib/types";
+import { useSession } from "@/state/session";
+import { useTheme } from "@/theme/theme";
 
 const COMPOSITIONS = ["anchor", "centered", "split"] as const;
 const TYPEFACES = ["inter", "bebas", "playfair", "grotesk"] as const;
 
+/** Two letters, so a dense list still parses at a glance. */
+const TAG: Record<LayerType, string> = { text: "tx", image: "im", icon: "ic", shape: "sh" };
+const ACTION: Record<LayerType, string> = {
+  text: "edit text",
+  image: "regenerate zone",
+  icon: "swap icon",
+  shape: "recolor",
+};
+
 export default function CanvasScreen() {
-  const { jobId, prompt } = useLocalSearchParams<{ jobId: string; prompt?: string }>();
-  const job = useJob(jobId ?? null);
-  const live = useGenerationProgress(jobId ?? null);
-
+  const { c, isDesktop } = useTheme();
   const router = useRouter();
-  const [revising, setRevising] = useState(false);
+  const toast = useToast();
+  const revise = useRevise();
 
-  const revise = async (changes: Parameters<typeof reviseJob>[1]) => {
-    if (!jobId || revising) return;
-    setRevising(true);
-    try {
-      const accepted = await reviseJob(jobId, changes);
-      router.replace({ pathname: "/canvas", params: { jobId: accepted.job_id, prompt } });
-    } finally {
-      setRevising(false);
-    }
+  // Reachable both ways: pushed from explore via session, or linked with ?jobId=.
+  const params = useLocalSearchParams<{ jobId?: string }>();
+  const { activeJobId, setActiveJobId } = useSession();
+  const jobId = params.jobId ?? activeJobId;
+
+  const { data: job } = useJob(jobId ?? null);
+  const [selected, setSelected] = useState(-1);
+
+  const layers = useMemo(
+    () => (job?.result?.layers ?? []).filter((l) => l.visible !== false).sort((a, b) => b.z_index - a.z_index),
+    [job],
+  );
+
+  // A poster whose photo render timed out still comes back "done" - the layout is
+  // real, the picture is a placeholder block. Say so, rather than letting it read
+  // as a design that just looks broken.
+  const photoMissing =
+    job?.status === "done" &&
+    layers.some((l) => l.type === "image" && !l.raster_key);
+
+  const canvasW = job?.result?.canvas_width ?? 1;
+  const canvasH = job?.result?.canvas_height ?? 1;
+  const aspect = canvasW / canvasH;
+  const highlight = selected >= 0 ? layers[selected] : undefined;
+
+  const applyRevise = (changes: Parameters<typeof revise.mutate>[0]["changes"]) => {
+    if (!jobId) return;
+    revise.mutate(
+      { jobId, changes },
+      {
+        onSuccess: (accepted) => {
+          setActiveJobId(accepted.job_id);
+          setSelected(-1);
+        },
+      },
+    );
   };
 
-  const status = live?.stage ?? job.data?.status ?? "queued";
-  const isTerminal = status === "done" || status === "error";
-  const result = job.data?.result;
-  const plan = job.data?.plan;
-
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.container}>
-        {!!prompt && <Text style={styles.prompt}>{prompt}</Text>}
+    <View style={[styles.root, { flexDirection: isDesktop ? "row" : "column" }]}>
+      <View style={[styles.media, { backgroundColor: c.mediaBg }]}>
+        <PressScale scale={0.99} onPress={() => router.back()} style={styles.back}>
+          <Icon name="arrowLeft" size={15} color={c.t2} opacity={0.6} />
+          <Body size={13} color={c.t2}>
+            back
+          </Body>
+        </PressScale>
 
-        {!isTerminal && <ProgressBar status={status} message={live?.message} />}
-
-        {status === "error" && (
-          <Text style={styles.error}>{job.data?.error ?? "Generation failed"}</Text>
-        )}
-
-        {result && (
-          <View style={styles.canvasWrap}>
-            <CanvasPreview
-              jobId={jobId ?? ""}
-              layers={result.layers}
-              canvasWidth={result.canvas_width}
-              canvasHeight={result.canvas_height}
-            />
+        <View style={styles.mediaBody}>
+          <View style={[styles.artwork, { aspectRatio: aspect }]}>
+            <JobArtwork jobId={jobId ?? ""} kind={job?.kind} fill style={styles.artworkImg} />
+            {highlight ? <Highlight layer={highlight} canvasW={canvasW} canvasH={canvasH} /> : null}
           </View>
-        )}
+        </View>
+      </View>
 
-        {job.data?.kind === "poster" && status === "done" && (
-          <View style={styles.revise}>
-            <Text style={styles.reviseLabel}>Adjust</Text>
-            <View style={styles.reviseRow}>
-              {COMPOSITIONS.map((c) => (
-                <Pressable
-                  key={c}
-                  disabled={revising}
-                  onPress={() => revise({ composition: c })}
-                  style={[styles.chip, plan?.composition === c && styles.chipOn]}
-                >
-                  <Text style={styles.chipText}>{c}</Text>
-                </Pressable>
-              ))}
+      <ScrollView
+        style={[
+          styles.panel,
+          isDesktop ? { width: 340, borderLeftWidth: 1, borderLeftColor: c.ln2 } : undefined,
+        ]}
+        contentContainerStyle={styles.panelBody}
+      >
+        <Body size={14.5} style={styles.prompt}>
+          {job?.prompt ?? ""}
+        </Body>
+
+        <View style={styles.metaRow}>
+          {[
+            job?.result?.aesthetic_version,
+            job?.kind,
+            job?.result ? `${canvasW}×${canvasH}` : undefined,
+          ]
+            .filter(Boolean)
+            .map((m) => (
+              <View key={m} style={[styles.metaChip, { backgroundColor: c.sf }]}>
+                <Mono size={type.monoSM} color={c.t2}>
+                  {m}
+                </Mono>
+              </View>
+            ))}
+          {photoMissing ? (
+            <View style={[styles.metaChip, { backgroundColor: c.sf }]}>
+              <Mono size={type.monoSM} color={c.error}>
+                photo did not render
+              </Mono>
             </View>
-            <View style={styles.reviseRow}>
-              {TYPEFACES.map((t) => (
-                <Pressable
-                  key={t}
-                  disabled={revising}
-                  onPress={() => revise({ typeface: t })}
-                  style={[styles.chip, plan?.typeface === t && styles.chipOn]}
+          ) : null}
+        </View>
+
+        {layers.length ? (
+          <View style={styles.block}>
+            <MonoLabel>layers</MonoLabel>
+            {layers.map((l, i) => {
+              const on = selected === i;
+              return (
+                <PressScale
+                  key={l.layer_id}
+                  scale={0.99}
+                  onPress={() => setSelected(on ? -1 : i)}
+                  style={[styles.layerRow, { backgroundColor: on ? c.raise : c.sf0 }]}
                 >
-                  <Text style={styles.chipText}>{t}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable
-              disabled={revising}
-              onPress={() => revise({ rerender_photo: true })}
-              style={styles.chip}
+                  <View style={[styles.layerTag, { backgroundColor: c.raise }]}>
+                    <Mono size={9} color={on ? c.accent : c.t3} style={styles.layerTagText}>
+                      {TAG[l.type]}
+                    </Mono>
+                  </View>
+                  <Body size={13} numberOfLines={1} style={styles.grow}>
+                    {l.name}
+                  </Body>
+                  <Body size={11} color={c.t3}>
+                    {ACTION[l.type]}
+                  </Body>
+                </PressScale>
+              );
+            })}
+          </View>
+        ) : null}
+
+        <View style={styles.block}>
+          <MonoLabel>adjust</MonoLabel>
+          <View style={styles.chipRow}>
+            {COMPOSITIONS.map((comp) => {
+              const on = job?.plan?.composition === comp;
+              return (
+                <PressScale
+                  key={comp}
+                  scale={0.96}
+                  disabled={revise.isPending}
+                  onPress={() => applyRevise({ composition: comp })}
+                  style={[styles.adjChip, { backgroundColor: on ? c.t1 : c.sf }]}
+                >
+                  <Body size={12} weight={on ? "500" : "400"} color={on ? c.bg0 : c.t2}>
+                    {comp}
+                  </Body>
+                </PressScale>
+              );
+            })}
+            <PressScale
+              scale={0.96}
+              disabled={revise.isPending}
+              onPress={() => applyRevise({ rerender_photo: true })}
+              style={[styles.adjChip, { backgroundColor: c.sf }]}
             >
-              <Text style={styles.chipText}>New photo</Text>
-            </Pressable>
+              <Body size={12} color={c.t2}>
+                new photo
+              </Body>
+            </PressScale>
           </View>
-        )}
 
-        {plan && (
-          <View style={styles.rationale}>
-            <Text style={styles.rationaleLabel}>Why this design</Text>
-            <Text style={styles.rationaleText}>{plan.rationale}</Text>
+          <View style={styles.chipRow}>
+            {TYPEFACES.map((tf) => {
+              const on = job?.plan?.typeface === tf;
+              return (
+                <PressScale
+                  key={tf}
+                  scale={0.96}
+                  disabled={revise.isPending}
+                  onPress={() => applyRevise({ typeface: tf })}
+                  style={[styles.adjChip, { backgroundColor: on ? c.t1 : c.sf }]}
+                >
+                  <Mono size={11} weight={on ? "500" : "400"} color={on ? c.bg0 : c.t2}>
+                    {tf}
+                  </Mono>
+                </PressScale>
+              );
+            })}
           </View>
-        )}
+        </View>
+
+        {job?.plan?.rationale ? (
+          <View style={styles.block}>
+            <MonoLabel>why this design</MonoLabel>
+            <Body size={12.5} color={c.t2} style={styles.rationale}>
+              {job.plan.rationale}
+            </Body>
+          </View>
+        ) : null}
+
+        <View style={styles.actions}>
+          <Pill label="export png" tone="accent" height={44} onPress={() => toast("exported png to photos")} />
+          <Pill
+            label="remix"
+            height={44}
+            onPress={() => router.push("/create")}
+          />
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
+  );
+}
+
+/** The selected layer's own box, drawn over the artwork in canvas coordinates. */
+function Highlight({ layer, canvasW, canvasH }: { layer: Layer; canvasW: number; canvasH: number }) {
+  const { c } = useTheme();
+  const { x, y, width, height } = layer.bbox;
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.highlight,
+        {
+          borderColor: c.accent,
+          left: `${(x / canvasW) * 100}%`,
+          top: `${(y / canvasH) * 100}%`,
+          width: `${(width / canvasW) * 100}%`,
+          height: `${(height / canvasH) * 100}%`,
+        },
+      ]}
+    >
+      <View style={[styles.highlightTag, { backgroundColor: c.accent }]}>
+        <Mono size={9} color={c.bg0}>
+          {layer.name}
+        </Mono>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0B0B0F" },
-  container: { padding: 20, gap: 20 },
-  prompt: { color: "#8A8F98", fontSize: 14, fontStyle: "italic" },
-  error: { color: "#E5484D", fontSize: 14 },
-  canvasWrap: {
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#15161B",
-    borderWidth: 1,
-    borderColor: "#2A2D34",
-  },
-  revise: { gap: 8 },
-  reviseLabel: { color: "#6B707A", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
-  reviseRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  chip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#2A2D34",
-    backgroundColor: "#15161B",
-  },
-  chipOn: { borderColor: "#F4F5F7" },
-  chipText: { color: "#C7CAD1", fontSize: 13 },
-  rationale: { gap: 6 },
-  rationaleLabel: { color: "#6B707A", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
-  rationaleText: { color: "#C7CAD1", fontSize: 14, lineHeight: 20 },
+  root: { flex: 1 },
+  grow: { flex: 1, minWidth: 0 },
+
+  media: { flex: 1, minWidth: 0 },
+  back: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 20, height: 48 },
+  mediaBody: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 36, paddingBottom: 36, minHeight: 320 },
+  // Takes the full height of the stage and derives its width from the canvas
+  // aspect. Without an explicit height, a box with only aspectRatio and max
+  // constraints has nothing to size from and collapses to its intrinsic width.
+  artwork: { height: "100%", maxWidth: "100%", position: "relative" },
+  artworkImg: { width: "100%", height: "100%", borderRadius: 6 },
+  highlight: { position: "absolute", borderWidth: 1.5, borderRadius: 4 },
+  highlightTag: { position: "absolute", top: -22, left: -1.5, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+
+  panel: { flexGrow: 0 },
+  panelBody: { paddingVertical: 28, paddingHorizontal: 22, gap: 22 },
+  prompt: { lineHeight: 14.5 * 1.5 },
+  metaRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  metaChip: { borderRadius: 5, paddingHorizontal: 8, paddingVertical: 5 },
+  block: { gap: 6 },
+  layerRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: radii.thumb },
+  layerTag: { borderRadius: 3, paddingHorizontal: 5, paddingVertical: 2 },
+  layerTagText: { letterSpacing: 0.5 },
+  chipRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  adjChip: { borderRadius: radii.chip, paddingHorizontal: 13, paddingVertical: 6 },
+  rationale: { lineHeight: 12.5 * 1.6 },
+  actions: { gap: 8, marginTop: "auto" },
 });

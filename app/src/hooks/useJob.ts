@@ -17,5 +17,11 @@ export function useJob(jobId: string | null) {
       if (!status || TERMINAL.includes(status)) return false;
       return 2000;
     },
+    // A done or failed job never changes again, so once it lands it is never
+    // stale and never evicted for a day. Without this every return to explore
+    // refetches the full layer JSON for every card on screen.
+    staleTime: (query) =>
+      TERMINAL.includes(query.state.data?.status as JobStatus) ? Infinity : 0,
+    gcTime: 24 * 60 * 60 * 1000,
   });
 }
