@@ -473,19 +473,25 @@ class ComfyRenderer:
         scene_text: str | None = None,
         should_cancel: Callable[[], bool] | None = None,
     ) -> bytes | None:
-        """Never raises, except Cancelled: any failure (unreachable, bad graph, timeout)
-        degrades to None so
-        the caller falls back to a flat colour block instead of failing the whole job.
+        """Never raises, except Cancelled: any other failure (unreachable, bad graph,
+        timeout) degrades to None so the caller falls back to a flat colour block
+        instead of failing the whole job.
         scene_text switches the one layer that needs legible in-photo words to Flux;
         without Flux installed it renders with SDXL and the words are simply absent."""
         try:
-            return self._render(prompt, width, height, lora, scene_text)
+            return self._render(prompt, width, height, lora, scene_text, should_cancel)
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.error("comfy render failed on %s: %s", self.name, exc)
             return None
 
     def _render(
-        self, prompt: str, width: int, height: int, lora: str | None, scene_text: str | None
+        self,
+        prompt: str,
+        width: int,
+        height: int,
+        lora: str | None,
+        scene_text: str | None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> bytes | None:
         client_id = uuid.uuid4().hex
         if scene_text and self.flux:
