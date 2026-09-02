@@ -15,6 +15,7 @@ import { PressScale } from "@/components/ui/press";
 import { Body, Display, Mono } from "@/components/ui/type";
 import { coverAspect } from "@/hooks/useJobCover";
 import { useJobHistory } from "@/hooks/useJobHistory";
+import { noOutline } from "@/lib/styles";
 import { radii, type } from "@/lib/tokens";
 import type { JobKind, JobSummary } from "@/lib/types";
 import { useSession } from "@/state/session";
@@ -70,7 +71,7 @@ export default function ExploreScreen() {
         <View style={[styles.search, { backgroundColor: c.sf }, !isDesktop && styles.searchWide]}>
           <Icon name="search" size={14} color={c.t1} opacity={0.5} />
           <TextInput
-            style={[styles.searchInput, { color: c.t1 }]}
+            style={[styles.searchInput, noOutline, { color: c.t1 }]}
             placeholder="search generations"
             placeholderTextColor={c.t3}
             value={query}
@@ -159,13 +160,18 @@ function Card({ job }: { job: JobSummary }) {
       <Body size={12.5} weight="500" color="#FFFFFF" numberOfLines={1} style={styles.caption}>
         {name}
       </Body>
-      {isDesktop && hovered ? (
+      {/* Always mounted on desktop, only dimmer when idle. Mounting it on hover
+          made it vanish the moment the pointer crossed onto it, so it could not
+          be clicked at all. */}
+      {isDesktop ? (
         <PressScale
           scale={0.9}
           onPress={confirmDelete}
+          onHoverIn={() => setHovered(true)}
+          onHoverOut={() => setHovered(false)}
           accessibilityRole="button"
           accessibilityLabel={`delete ${name}`}
-          style={[styles.delete, { backgroundColor: c.bg0 }]}
+          style={[styles.delete, { backgroundColor: c.bg0, opacity: hovered ? 1 : 0.45 }]}
         >
           <Icon name="trash" size={15} color={c.t1} />
         </PressScale>
@@ -273,7 +279,6 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    opacity: 0.92,
   },
   caption: {
     paddingHorizontal: 14,

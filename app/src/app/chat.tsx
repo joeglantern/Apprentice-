@@ -40,6 +40,7 @@ import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import { useJob } from "@/hooks/useJob";
 import { useJobCover } from "@/hooks/useJobCover";
 import { readProgress } from "@/lib/progress";
+import { isSubmitKey, noOutline } from "@/lib/styles";
 import { radii, type } from "@/lib/tokens";
 import type { ChatMessage, QuickAction } from "@/lib/types";
 import { SIZE_PX, useSession } from "@/state/session";
@@ -196,12 +197,18 @@ export default function ChatScreen() {
         <View style={styles.composerHost}>
           <View style={[styles.composer, { backgroundColor: c.sf, borderColor: c.raise2 }]}>
             <TextInput
-              style={[styles.input, { color: c.t1 }]}
+              style={[styles.input, noOutline, { color: c.t1 }]}
               placeholder={chat.activeJobId ? "describe the change" : "describe the piece"}
               placeholderTextColor={c.t3}
               value={draft}
               onChangeText={setDraft}
               multiline
+              onKeyPress={(e) => {
+                if (isSubmitKey(e)) {
+                  e.preventDefault?.();
+                  send();
+                }
+              }}
               onSubmitEditing={send}
               blurOnSubmit={false}
             />

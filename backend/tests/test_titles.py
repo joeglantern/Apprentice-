@@ -115,3 +115,31 @@ def _async(value):
         return value
 
     return run
+
+
+def test_worker_can_actually_call_its_titler(monkeypatch):
+    """A regression guard with teeth.
+
+    The titling call was once added to the worker while the function it calls was
+    not, which grepping for the name could not catch (the call site matched) and no
+    test exercised. Every render that followed finished and then died with a
+    NameError at the last line. This imports the module and calls the thing.
+    """
+    from app import worker
+
+    async def fake(prompt, plan, kind, settings):
+        return "Ember Lane"
+
+    monkeypatch.setattr(worker, "make_title", fake)
+    assert worker._title_for("a logo for a coffee roaster", {}, "logo") == "Ember Lane"
+
+
+def test_worker_titler_survives_a_broken_model(monkeypatch):
+    from app import worker
+
+    async def boom(*a, **k):
+        raise RuntimeError("ollama is on fire")
+
+    monkeypatch.setattr(worker, "make_title", boom)
+    # The render already succeeded; naming must not turn that into a failed job.
+    assert worker._title_for("a very long brief about a poster", {}, "poster")

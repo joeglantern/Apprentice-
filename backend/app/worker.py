@@ -196,6 +196,16 @@ def generate_design(self: Any, job_id: str) -> str:
     return "done"
 
 
+def _title_for(prompt: str, plan: dict[str, Any], kind: str) -> str:
+    """Name the finished piece. Never lets a naming problem cost a finished render:
+    the work is already done and stored by the time this runs."""
+    try:
+        return asyncio.run(make_title(prompt, plan, kind, settings))
+    except Exception:  # noqa: BLE001
+        log.warning("could not title job, falling back to the brief", exc_info=True)
+        return from_prompt(prompt)
+
+
 @celery_app.task(name="app.worker.retag_received")
 def retag_received() -> int:
     """Sweep for assets whose tagging publish was lost (broker outage) and re-enqueue."""

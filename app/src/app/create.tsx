@@ -38,6 +38,7 @@ import { useJobCover } from "@/hooks/useJobCover";
 import { useJobHistory } from "@/hooks/useJobHistory";
 import { KITS, findKit } from "@/lib/kits";
 import { readProgress } from "@/lib/progress";
+import { isSubmitKey, noOutline } from "@/lib/styles";
 import { radii, type } from "@/lib/tokens";
 import type { JobKind } from "@/lib/types";
 import { SIZE_PX, useSession, type SizeKey } from "@/state/session";
@@ -213,13 +214,21 @@ export default function CreateScreen() {
             ]}
           >
             <TextInput
-              style={[styles.prompt, { color: c.t1 }]}
+              style={[styles.prompt, noOutline, { color: c.t1 }]}
               placeholder="poster for a summer jazz festival, friday night, downtown park"
               placeholderTextColor={c.t3}
               value={prompt}
               onChangeText={setPrompt}
               multiline
               numberOfLines={2}
+              // Enter generates, shift+enter makes a new line. A multiline input
+              // never fires onSubmitEditing, so the key is read directly.
+              onKeyPress={(e) => {
+                if (isSubmitKey(e)) {
+                  e.preventDefault?.();
+                  submit();
+                }
+              }}
               onSubmitEditing={submit}
               blurOnSubmit={false}
             />

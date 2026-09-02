@@ -15,6 +15,7 @@ import { PressScale } from "@/components/ui/press";
 import { Body, Display, Mono } from "@/components/ui/type";
 import { UmbraMark } from "@/components/ui/marks";
 import { VoidStage } from "@/components/ui/VoidStage";
+import { noOutline } from "@/lib/styles";
 import { type } from "@/lib/tokens";
 import { useSession } from "@/state/session";
 import { useTheme } from "@/theme/theme";
@@ -33,7 +34,7 @@ export default function AuthScreen() {
     router.replace("/onboarding");
   };
 
-  const field = [styles.field, { backgroundColor: c.sf, color: c.t1 }];
+  const field = [styles.field, noOutline, { backgroundColor: c.sf, color: c.t1 }];
 
   return (
     <VoidStage>

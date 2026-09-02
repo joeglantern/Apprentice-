@@ -10,6 +10,7 @@ import { PressScale } from "@/components/ui/press";
 import { Body, Display, Mono, MonoLabel } from "@/components/ui/type";
 import { VoidStage } from "@/components/ui/VoidStage";
 import { defaultBaseUrl } from "@/lib/api";
+import { noOutline } from "@/lib/styles";
 import { radii, type } from "@/lib/tokens";
 import { useSession } from "@/state/session";
 import { useTheme } from "@/theme/theme";
@@ -29,7 +30,7 @@ export default function OnboardingScreen() {
     router.replace("/");
   };
 
-  const field = [styles.field, { backgroundColor: c.sf0, color: c.t1 }];
+  const field = [styles.field, noOutline, { backgroundColor: c.sf0, color: c.t1 }];
 
   return (
     <VoidStage>
