@@ -31,7 +31,11 @@ celery_app.conf.update(
         "retag-received-assets": {
             "task": "app.worker.retag_received",
             "schedule": 300.0,
-        }
+        },
+        "fail-stranded-jobs": {
+            "task": "app.worker.fail_stranded_jobs",
+            "schedule": 300.0,
+        },
     },
 )
 
@@ -204,6 +208,41 @@ def _title_for(prompt: str, plan: dict[str, Any], kind: str) -> str:
     except Exception:  # noqa: BLE001
         log.warning("could not title job, falling back to the brief", exc_info=True)
         return from_prompt(prompt)
+
+
+@celery_app.task(name="app.worker.fail_stranded_jobs")
+def fail_stranded_jobs() -> int:
+    """Finish jobs whose worker died mid-render.
+
+    A crash between picking a job up and writing its result leaves the row saying
+    "render" forever. It never lands, so nothing settles a chat turn's landed line,
+    the jobs screen shows work that is not happening, and the row cannot be deleted,
+    because deleting a running job would pull the ground from under a live worker.
+
+    The threshold is generous on purpose. A poster on a busy queue can legitimately
+    sit for a long time, and calling a live job dead is worse than showing a stale
+    one for another hour.
+    """
+    cutoff = utcnow() - timedelta(hours=1)
+    with sync_session() as session:
+        stranded = list(
+            session.exec(
+                select(Job).where(
+                    Job.status.not_in(("done", "error")),  # type: ignore[attr-defined]
+                    Job.updated_at < cutoff,
+                )
+            ).all()
+        )
+        for job in stranded:
+            job.status = "error"
+            job.error = "The renderer stopped before this finished"
+            job.updated_at = utcnow()
+            session.add(job)
+        if stranded:
+            session.commit()
+    if stranded:
+        log.warning("failed %d stranded job(s)", len(stranded))
+    return len(stranded)
 
 
 @celery_app.task(name="app.worker.retag_received")

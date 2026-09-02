@@ -972,3 +972,62 @@ async def test_delete_keeps_a_raster_a_revision_still_uses(
     assert shared in storage.objects, "the revision still needs this one"
     assert only_mine not in storage.objects
     assert (await client.get(f"/generate/{revision}", headers=AUTH_A)).status_code == 200
+
+
+def test_the_sweeper_fails_only_jobs_that_have_gone_quiet(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A crash between picking a job up and writing its result leaves it saying
+    "render" forever: it never lands, and it cannot be deleted either, because
+    deleting a running job would pull the ground from under a live worker.
+
+    Runs against its own sync database, because the sweep is a Celery task using the
+    worker's own engine rather than the request-scoped session the fixtures provide.
+    """
+    from contextlib import contextmanager
+    from datetime import timedelta
+
+    from sqlalchemy import create_engine
+    from sqlmodel import Session as SyncSession
+    from sqlmodel import SQLModel
+
+    from app import worker as worker_mod
+    from app.models import Job, utcnow
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'sweep.db'}")
+    SQLModel.metadata.create_all(engine)
+
+    @contextmanager
+    def fake_session():
+        with SyncSession(engine) as s:
+            yield s
+
+    monkeypatch.setattr(worker_mod, "sync_session", fake_session)
+
+    old = utcnow() - timedelta(hours=3)
+    with SyncSession(engine) as s:
+        for job_id, status, seen in (
+            ("stale", "render", old),
+            ("fresh", "render", utcnow()),
+            ("settled", "done", old),
+        ):
+            s.add(
+                Job(
+                    job_id=job_id,
+                    prompt="a poster",
+                    aesthetic_version="baseline",
+                    width=1080,
+                    height=1350,
+                    requested_by="mac-m4",
+                    status=status,
+                    updated_at=seen,
+                )
+            )
+        s.commit()
+
+    assert worker_mod.fail_stranded_jobs() == 1
+
+    with SyncSession(engine) as s:
+        assert s.get(Job, "stale").status == "error"
+        assert s.get(Job, "fresh").status == "render", "a live render must be left alone"
+        assert s.get(Job, "settled").status == "done"
