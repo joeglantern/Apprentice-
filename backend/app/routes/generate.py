@@ -51,6 +51,7 @@ class JobRead(BaseModel):
     prompt: str
     aesthetic_version: str
     kind: str = "poster"
+    title: str | None = None
     plan: dict[str, Any] | None
     result: dict[str, Any] | None
     error: str | None
@@ -67,6 +68,9 @@ class JobSummary(BaseModel):
     prompt: str
     aesthetic_version: str
     kind: str = "poster"
+    # Written when the job lands (app/titles.py). Null on jobs from before titles
+    # existed and on anything unfinished; the app falls back to the prompt.
+    title: str | None = None
     created_at: Any
     updated_at: Any
 
@@ -197,6 +201,7 @@ async def list_jobs(
             Job.prompt,
             Job.aesthetic_version,
             Job.kind,
+            Job.title,
             Job.created_at,
             Job.updated_at,
         )
@@ -234,6 +239,65 @@ async def read_raster(
     except Exception as exc:  # noqa: BLE001 - backend-specific "not found" exceptions vary
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Raster no longer available") from exc
     return Response(content=data, media_type="image/png")
+
+
+@router.delete("/generate/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job(
+    job_id: JobId,
+    session: AsyncSession = Depends(get_session),
+    agent_id: str = Depends(verify_agent_token),
+    storage: Storage = Depends(get_storage),
+) -> Response:
+    """Remove a generation and the images only it was using.
+
+    A revision reuses its source's rendered photo rather than repainting it
+    (worker.run_generation_task, reuse_rasters), so two jobs can name the same object
+    key. Deleting every key this job mentions would blank a revision that is still
+    around, so a key is only removed once nothing else refers to it.
+
+    Storage failures do not block the delete: an object left behind is recoverable
+    waste, a row that will not go away is a broken screen.
+    """
+    job = await session.get(Job, job_id.lower())
+    if job is None or job.requested_by != agent_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if job.status not in ("done", "error"):
+        # Deleting the row underneath a running task leaves the worker writing results
+        # for a job nobody can read, and the app polling something that is gone.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Still running; wait for it to finish"
+        )
+
+    mine = {
+        layer.get("raster_key")
+        for layer in ((job.result or {}).get("layers") or [])
+        if layer.get("raster_key")
+    }
+    if mine:
+        others = (
+            await session.exec(
+                select(Job.result).where(
+                    Job.requested_by == agent_id,
+                    Job.job_id != job.job_id,
+                    Job.result.is_not(None),  # type: ignore[union-attr]
+                )
+            )
+        ).all()
+        still_used = {
+            layer.get("raster_key")
+            for result in others
+            for layer in ((result or {}).get("layers") or [])
+            if layer.get("raster_key")
+        }
+        for key in mine - still_used:
+            try:
+                await storage.delete(key)
+            except Exception:  # noqa: BLE001 - backend-specific errors vary
+                log.warning("could not delete raster %s for job %s", key, job.job_id)
+
+    await session.delete(job)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/aesthetics", response_model=list[Aesthetic])

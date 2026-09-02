@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -11,7 +13,9 @@ from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.models import Asset, Checkpoint, Job, utcnow
+from app.titles import from_prompt, make_title
 
+log = logging.getLogger(__name__)
 settings = get_settings()
 
 celery_app = Celery("ghostagent", broker=settings.redis_url, backend=settings.redis_url)
@@ -172,12 +176,16 @@ def generate_design(self: Any, job_id: str) -> str:
             pass
         return "error"
 
+    plan_dict = plan.model_dump()
+    title = _title_for(prompt, plan_dict, kind)
+
     with sync_session() as session:
         job = session.get(Job, job_id)
         if job is not None:
-            job.plan = plan.model_dump()
+            job.plan = plan_dict
             job.result = result
             job.status = "done"
+            job.title = title
             job.updated_at = utcnow()
             session.add(job)
             session.commit()

@@ -145,6 +145,25 @@ export async function reviseJob(
   return unwrap<GenerateAccepted>(res);
 }
 
+/** Remove a generation and the images only it was using. 409 while it is still
+ * running, which the caller should surface rather than retry. */
+export async function deleteJob(jobId: string): Promise<void> {
+  const res = await fetch(`${base()}/generate/${jobId}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!res.ok && res.status !== 404) {
+    let detail = res.statusText;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body?.detail) detail = body.detail;
+    } catch {
+      // not JSON; keep statusText
+    }
+    throw new Error(`${res.status} ${detail}`);
+  }
+}
+
 export function socketBaseUrl(): string {
   return base() ?? "";
 }

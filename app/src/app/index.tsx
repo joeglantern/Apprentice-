@@ -5,10 +5,12 @@
 
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Image, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Alert, Image, Platform, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 import { Icon } from "@/components/ui/Icon";
 import { JobArtwork } from "@/components/ui/JobArtwork";
+import { useDeleteJob } from "@/hooks/useDeleteJob";
+import { useToast } from "@/components/ui/Toast";
 import { PressScale } from "@/components/ui/press";
 import { Body, Display, Mono } from "@/components/ui/type";
 import { coverAspect } from "@/hooks/useJobCover";
@@ -40,7 +42,10 @@ export default function ExploreScreen() {
   const visible = useMemo(() => {
     const byKind = filter === "all" ? done : done.filter((j) => j.kind === filter);
     const q = query.trim().toLowerCase();
-    return q ? byKind.filter((j) => j.prompt.toLowerCase().includes(q)) : byKind;
+    if (!q) return byKind;
+    return byKind.filter(
+      (j) => j.prompt.toLowerCase().includes(q) || (j.title ?? "").toLowerCase().includes(q),
+    );
   }, [done, filter, query]);
 
   // Greedy shortest-column packing. React Native has no CSS columns, and a plain
@@ -110,9 +115,28 @@ export default function ExploreScreen() {
 }
 
 function Card({ job }: { job: JobSummary }) {
-  const { c } = useTheme();
+  const { c, isDesktop } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const { setActiveJobId } = useSession();
+  const remove = useDeleteJob();
+  const [hovered, setHovered] = useState(false);
+
+  // The name the backend wrote, falling back to the brief for work made before
+  // titles existed and for anything still unfinished.
+  const name = job.title?.trim() || job.prompt;
+
+  const confirmDelete = () => {
+    const run = () =>
+      remove.mutate(job.job_id, {
+        onError: (e) => toast((e as Error).message.replace(/^\d+\s*/, "") || "could not delete"),
+      });
+    if (Platform.OS === "web") return run();
+    Alert.alert("delete this piece", name, [
+      { text: "cancel", style: "cancel" },
+      { text: "delete", style: "destructive", onPress: run },
+    ]);
+  };
 
   return (
     <PressScale
@@ -121,14 +145,31 @@ function Card({ job }: { job: JobSummary }) {
         setActiveJobId(job.job_id);
         router.push("/canvas");
       }}
+      // Long press everywhere, plus a hover target on desktop. A delete button
+      // sitting on every tile would fight the gallery it is meant to serve.
+      onLongPress={confirmDelete}
+      delayLongPress={450}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
       accessibilityRole="link"
-      accessibilityLabel={job.prompt}
+      accessibilityLabel={name}
       style={[styles.card, { backgroundColor: c.sf0, aspectRatio: coverAspect(job.kind) }]}
     >
       <JobArtwork jobId={job.job_id} kind={job.kind} fill style={StyleSheet.absoluteFill} />
       <Body size={12.5} weight="500" color="#FFFFFF" numberOfLines={1} style={styles.caption}>
-        {job.prompt}
+        {name}
       </Body>
+      {isDesktop && hovered ? (
+        <PressScale
+          scale={0.9}
+          onPress={confirmDelete}
+          accessibilityRole="button"
+          accessibilityLabel={`delete ${name}`}
+          style={[styles.delete, { backgroundColor: c.bg0 }]}
+        >
+          <Icon name="trash" size={15} color={c.t1} />
+        </PressScale>
+      ) : null}
     </PressScale>
   );
 }
@@ -223,6 +264,17 @@ const styles = StyleSheet.create({
   masonry: { flexDirection: "row", gap: 14 },
   column: { flex: 1, gap: 16 },
   card: { borderRadius: radii.mediaLg, overflow: "hidden", justifyContent: "flex-end" },
+  delete: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0.92,
+  },
   caption: {
     paddingHorizontal: 14,
     paddingBottom: 11,

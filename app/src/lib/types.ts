@@ -87,6 +87,9 @@ export interface JobSummary {
   job_id: string;
   status: JobStatus;
   prompt: string;
+  /** A short name written by the backend when the job landed. Null on jobs made
+   * before titles existed and on anything unfinished, so always fall back to prompt. */
+  title?: string | null;
   aesthetic_version: string;
   kind: JobKind;
   created_at: string;
@@ -97,6 +100,7 @@ export interface Job {
   job_id: string;
   status: JobStatus;
   prompt: string;
+  title?: string | null;
   aesthetic_version: string;
   kind: JobKind;
   plan: DesignPlan | null;

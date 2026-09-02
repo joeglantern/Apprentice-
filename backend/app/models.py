@@ -63,6 +63,10 @@ class Job(SQLModel, table=True):
     # skipped; without rerender_photo the source rendered photo is reused.
     revise: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     status: str = Field(default="queued", index=True, max_length=20)
+    # A short name for the finished piece (app/titles.py), written once when the job
+    # lands so a gallery reads as work rather than as a list of prompts. Null on jobs
+    # made before titles existed, and on anything that never finished.
+    title: str | None = Field(default=None, max_length=120)
     plan: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     error: str | None = None

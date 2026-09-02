@@ -879,3 +879,96 @@ def test_run_generation_seeded_plan_skips_director_and_reuses_raster(
     image = next(layer for layer in result["layers"] if layer["type"] == "image")
     assert image["raster_key"] == "renders/old/L01.png"
     assert renderer.calls == []  # no new render, no director
+
+
+def _done_job(job_id: str, owner: str, keys: list[str], **over):
+    from app.models import Job
+
+    return Job(
+        job_id=job_id,
+        prompt=over.pop("prompt", "a poster"),
+        aesthetic_version="baseline",
+        width=1080,
+        height=1350,
+        requested_by=owner,
+        status=over.pop("status", "done"),
+        result={
+            "canvas_width": 1080,
+            "canvas_height": 1350,
+            "aesthetic_version": "baseline",
+            "renderer": "legion",
+            "layers": [
+                {
+                    "layer_id": f"L{i}",
+                    "name": "hero visual",
+                    "type": "image",
+                    "z_index": 1,
+                    "bbox": {"x": 0, "y": 0, "width": 100, "height": 100},
+                    "raster_key": key,
+                }
+                for i, key in enumerate(keys)
+            ],
+        },
+        **over,
+    )
+
+
+async def test_delete_removes_the_job_and_its_own_raster(
+    client: AsyncClient, storage, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    key = "renders/del-1/L0.png"
+    storage.objects[key] = (b"png", "image/png")
+    jid = "44444444-4444-4444-8444-444444444444"
+    async with session_maker() as s:
+        s.add(_done_job(jid, "mac-m4", [key]))
+        await s.commit()
+
+    assert (await client.delete(f"/generate/{jid}", headers=AUTH_A)).status_code == 204
+    assert (await client.get(f"/generate/{jid}", headers=AUTH_A)).status_code == 404
+    assert key not in storage.objects
+
+
+async def test_delete_is_scoped_to_the_owner(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    jid = "44444444-4444-4444-8444-444444444445"
+    async with session_maker() as s:
+        s.add(_done_job(jid, "mac-m4", []))
+        await s.commit()
+    # Another agent's token must not be able to delete it, and must not learn it exists.
+    assert (await client.delete(f"/generate/{jid}", headers=AUTH_B)).status_code == 404
+    assert (await client.get(f"/generate/{jid}", headers=AUTH_A)).status_code == 200
+
+
+async def test_delete_refuses_while_the_job_is_still_running(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    jid = "44444444-4444-4444-8444-444444444446"
+    async with session_maker() as s:
+        s.add(_done_job(jid, "mac-m4", [], status="render"))
+        await s.commit()
+    r = await client.delete(f"/generate/{jid}", headers=AUTH_A)
+    assert r.status_code == 409
+    assert (await client.get(f"/generate/{jid}", headers=AUTH_A)).status_code == 200
+
+
+async def test_delete_keeps_a_raster_a_revision_still_uses(
+    client: AsyncClient, storage, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """A revision reuses its source's photo rather than repainting it, so both rows
+    name the same object. Deleting the source must not blank the revision."""
+    shared = "renders/shared/L0.png"
+    only_mine = "renders/source-only/L1.png"
+    storage.objects[shared] = (b"png", "image/png")
+    storage.objects[only_mine] = (b"png", "image/png")
+    source = "44444444-4444-4444-8444-444444444447"
+    revision = "44444444-4444-4444-8444-444444444448"
+    async with session_maker() as s:
+        s.add(_done_job(source, "mac-m4", [shared, only_mine]))
+        s.add(_done_job(revision, "mac-m4", [shared]))
+        await s.commit()
+
+    assert (await client.delete(f"/generate/{source}", headers=AUTH_A)).status_code == 204
+    assert shared in storage.objects, "the revision still needs this one"
+    assert only_mine not in storage.objects
+    assert (await client.get(f"/generate/{revision}", headers=AUTH_A)).status_code == 200

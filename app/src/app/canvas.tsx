@@ -14,7 +14,7 @@ import { JobArtwork } from "@/components/ui/JobArtwork";
 import { Pill } from "@/components/ui/controls";
 import { PressScale } from "@/components/ui/press";
 import { useToast } from "@/components/ui/Toast";
-import { Body, Mono, MonoLabel } from "@/components/ui/type";
+import { Body, Display, Mono, MonoLabel } from "@/components/ui/type";
 import { useJob } from "@/hooks/useJob";
 import { useRevise } from "@/hooks/useRevise";
 import { radii, type } from "@/lib/tokens";
@@ -103,9 +103,20 @@ export default function CanvasScreen() {
         ]}
         contentContainerStyle={styles.panelBody}
       >
-        <Body size={14.5} style={styles.prompt}>
-          {job?.prompt ?? ""}
-        </Body>
+        {/* The name first, the brief under it: what the piece is called, then what
+            was asked for. Older pieces have no title and keep the brief alone. */}
+        {job?.title?.trim() ? (
+          <View style={styles.nameBlock}>
+            <Display size={22}>{job.title.trim()}</Display>
+            <Body size={12.5} color={c.t3} style={styles.brief}>
+              {job.prompt}
+            </Body>
+          </View>
+        ) : (
+          <Body size={14.5} style={styles.prompt}>
+            {job?.prompt ?? ""}
+          </Body>
+        )}
 
         <View style={styles.metaRow}>
           {[
@@ -277,6 +288,8 @@ const styles = StyleSheet.create({
   panel: { flexGrow: 0 },
   panelBody: { paddingVertical: 28, paddingHorizontal: 22, gap: 22 },
   prompt: { lineHeight: 14.5 * 1.5 },
+  nameBlock: { gap: 6 },
+  brief: { lineHeight: 12.5 * 1.5 },
   metaRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   metaChip: { borderRadius: 5, paddingHorizontal: 8, paddingVertical: 5 },
   block: { gap: 6 },
